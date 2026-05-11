@@ -95,7 +95,18 @@ export default function MapView({ commercial, onSwitch }) {
     ])
     if (comms) {
       setAllCommercials(comms)
-      setVisibleCommercials(new Set(comms.map(c => c.id)))
+      setVisibleCommercials(prev => {
+        // Premier chargement : afficher tous les commerciaux sauf "Autres agences"
+        if (prev.size === 0) {
+          return new Set(comms.filter(c => c.name !== 'Autres agences').map(c => c.id))
+        }
+        // Rechargements suivants : conserver l'état courant, ajouter les nouveaux (hors "Autres agences")
+        const next = new Set(prev)
+        comms.forEach(c => {
+          if (!prev.has(c.id) && c.name !== 'Autres agences') next.add(c.id)
+        })
+        return next
+      })
     }
     if (sitesData) setSites(sitesData.filter(s => !s.deleted))
   }

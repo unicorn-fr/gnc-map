@@ -211,12 +211,29 @@ export default function ImportPage({ commercials, onClose, onImported }) {
     const commercialValue = mapping.commercial ? String(row[mapping.commercial] ?? '').trim() : ''
     const matched = matchCommercial(commercialValue, commercials)
 
-    if (mapping.commercial && !matched) return null
+    // Pas de colonne commercial mappée → premier commercial par défaut
+    if (!mapping.commercial) {
+      const comm = commercials[0]
+      if (!comm) return null
+      return {
+        name:        mapping.name        ? String(row[mapping.name] ?? '').trim()   : '',
+        company:     mapping.company     ? String(row[mapping.company] ?? '').trim() : '',
+        type:        mapping.type        ? normalizeType(String(row[mapping.type] ?? '')) : 'chantier',
+        status:      mapping.status      ? normalizeStatus(String(row[mapping.status] ?? '')) : 'prospect',
+        address:     mapping.address     ? String(row[mapping.address] ?? '').trim() : '',
+        postcode:    mapping.postcode    ? String(row[mapping.postcode] ?? '').trim() : '',
+        city:        mapping.city        ? String(row[mapping.city] ?? '').trim()    : '',
+        phone:       mapping.phone       ? String(row[mapping.phone] ?? '').trim()   : '',
+        email:       mapping.email       ? String(row[mapping.email] ?? '').trim()   : '',
+        notes:       mapping.notes       ? String(row[mapping.notes] ?? '').trim()   : '',
+        external_id: mapping.external_id ? String(row[mapping.external_id] ?? '').trim() : '',
+        commercial_id:   comm.id,
+        commercial_name: comm.name,
+        isOther: false,
+      }
+    }
 
-    const comm = matched ?? commercials[0]
-    if (!comm) return null
-
-    return {
+    const baseFields = {
       name:        mapping.name        ? String(row[mapping.name] ?? '').trim()   : '',
       company:     mapping.company     ? String(row[mapping.company] ?? '').trim() : '',
       type:        mapping.type        ? normalizeType(String(row[mapping.type] ?? '')) : 'chantier',
@@ -228,14 +245,22 @@ export default function ImportPage({ commercials, onClose, onImported }) {
       email:       mapping.email       ? String(row[mapping.email] ?? '').trim()   : '',
       notes:       mapping.notes       ? String(row[mapping.notes] ?? '').trim()   : '',
       external_id: mapping.external_id ? String(row[mapping.external_id] ?? '').trim() : '',
-      commercial_id:   comm.id,
-      commercial_name: comm.name,
     }
+
+    if (matched) {
+      // Commercial reconnu (CT, LJ, EM…)
+      return { ...baseFields, commercial_id: matched.id, commercial_name: matched.name, isOther: false }
+    }
+
+    // Commercial non reconnu → "Autres agences" (sera créé si besoin à l'import)
+    return { ...baseFields, commercial_id: null, commercial_name: commercialValue || 'Autres agences', isOther: true }
   }
 
   const allParsed = rows.map(buildPreviewRow)
   const ignoredCount = allParsed.filter(r => r === null).length
   const validRows = allParsed.filter(r => r !== null && r.name.length > 0)
+  const autresCount = validRows.filter(r => r.isOther).length
+  const knownCount = validRows.filter(r => !r.isOther).length
   const preview = rows.slice(0, 8).map(buildPreviewRow).filter(Boolean)
 
   // ── Étape 4 : import ─────────────────────────────────────────
@@ -271,6 +296,27 @@ export default function ImportPage({ commercials, onClose, onImported }) {
 
     const importLogId = logData?.id ?? null
 
+    // Trouver ou créer le commercial "Autres agences" si des lignes inconnues existent
+    let autresCommId = null
+    if (prepared.some(r => r.isOther)) {
+      const { data: existingAutres } = await supabase
+        .from('commercials')
+        .select('id')
+        .eq('name', 'Autres agences')
+        .maybeSingle()
+
+      if (existingAutres) {
+        autresCommId = existingAutres.id
+      } else {
+        const { data: newAutres } = await supabase
+          .from('commercials')
+          .insert({ name: 'Autres agences', color: '#9CA3AF' })
+          .select('id')
+          .single()
+        autresCommId = newAutres?.id ?? null
+      }
+    }
+
     let inserted = 0, updated = 0, skipped = 0
     let noCoords = 0
 
@@ -279,8 +325,12 @@ export default function ImportPage({ commercials, onClose, onImported }) {
       const geo = geoResults[i]
       if (!geo) noCoords++
 
+      // Lignes "Autres agences" → utiliser l'ID auto-créé (ignorer si création échouée)
+      const resolvedCommId = row.isOther ? autresCommId : row.commercial_id
+      if (!resolvedCommId) { skipped++; continue }
+
       const payload = {
-        commercial_id: row.commercial_id,
+        commercial_id: resolvedCommId,
         name:          row.name || 'Sans nom',
         company:       row.company  || null,
         type:          row.type,
@@ -591,18 +641,30 @@ export default function ImportPage({ commercials, onClose, onImported }) {
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mb-4">
               <div className="flex items-start gap-3">
                 <AlertCircle size={18} className="text-amber-500 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-semibold text-gray-800">
+                <div className="w-full">
+                  <p className="font-semibold text-gray-800 mb-2">
                     {validRows.length} sites à importer sur {rows.length} lignes
                   </p>
-                  {ignoredCount > 0 && (
-                    <p className="text-sm text-amber-600 mt-0.5">
-                      ⚠️ {ignoredCount} ligne{ignoredCount > 1 ? 's ignorées' : ' ignorée'} — commercial non reconnu (autres commerciaux de votre entreprise)
+
+                  {/* Répartition par commercial */}
+                  {knownCount > 0 && (
+                    <p className="text-sm text-emerald-700 mt-0.5">
+                      ✅ {knownCount} site{knownCount > 1 ? 's' : ''} pour vos commerciaux (CT / LJ / EM…) — <strong>visibles sur la carte</strong>
+                    </p>
+                  )}
+                  {autresCount > 0 && (
+                    <p className="text-sm text-blue-600 mt-0.5">
+                      👁️ {autresCount} site{autresCount > 1 ? 's' : ''} pour d'autres commerciaux de l'agence — importés sous <strong>"Autres agences"</strong>, masqués par défaut sur la carte (activables dans le filtre)
                     </p>
                   )}
                   {(rows.length - validRows.length - ignoredCount) > 0 && (
                     <p className="text-sm text-gray-400 mt-0.5">
                       {rows.length - validRows.length - ignoredCount} ligne{rows.length - validRows.length - ignoredCount > 1 ? 's ignorées' : ' ignorée'} — nom manquant
+                    </p>
+                  )}
+                  {ignoredCount > 0 && (
+                    <p className="text-sm text-gray-400 mt-0.5">
+                      {ignoredCount} ligne{ignoredCount > 1 ? 's ignorées' : ' ignorée'} — données invalides
                     </p>
                   )}
                   {(mapping.address || mapping.city) && (
