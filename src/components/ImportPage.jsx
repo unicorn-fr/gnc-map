@@ -1,6 +1,6 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import * as XLSX from 'xlsx'
-import { ArrowLeft, Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Info } from 'lucide-react'
+import { ArrowLeft, Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Info, Trash2, History } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { geocodeBatch } from '../lib/geocode'
 import toast from 'react-hot-toast'
@@ -8,12 +8,10 @@ import toast from 'react-hot-toast'
 // ── Helpers ──────────────────────────────────────────────────
 const guessCol = (cols, keywords) => {
   const lc = cols.map(c => c.toLowerCase())
-  // Passe 1 : correspondance directe
   for (const kw of keywords) {
     const idx = lc.findIndex(c => c.includes(kw))
     if (idx >= 0) return cols[idx]
   }
-  // Passe 2 : après suppression de la ponctuation (gère "C.P." → "cp")
   const stripped = cols.map(c => c.toLowerCase().replace(/[.\s_\-/]/g, ''))
   for (const kw of keywords) {
     const kwS = kw.replace(/[.\s_\-/]/g, '')
@@ -59,6 +57,12 @@ const matchCommercial = (value, commercials) => {
 
 const str = (v) => String(v ?? '').trim()
 
+const fmtDate = (iso) =>
+  new Date(iso).toLocaleString('fr-FR', {
+    day: '2-digit', month: '2-digit', year: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+  })
+
 const STEPS = ['Fichier', 'Colonnes', 'Aperçu', 'Import']
 
 // ── Composant principal ────────────────────────────────────────
@@ -77,7 +81,42 @@ export default function ImportPage({ commercials, onClose, onImported }) {
   const [progress, setProgress] = useState({ current: 0, total: 0, phase: '' })
   const [results, setResults] = useState(null)
   const [isRunning, setIsRunning] = useState(false)
+  const [importHistory, setImportHistory] = useState([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [deletingBatch, setDeletingBatch] = useState(null)
   const fileRef = useRef()
+
+  useEffect(() => {
+    if (step === 0) loadHistory()
+  }, [step])
+
+  const loadHistory = async () => {
+    setHistoryLoading(true)
+    const { data } = await supabase
+      .from('import_logs')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(20)
+    if (data) setImportHistory(data)
+    setHistoryLoading(false)
+  }
+
+  const handleDeleteBatch = async (log) => {
+    if (!window.confirm(`Supprimer l'import "${log.filename}" du ${fmtDate(log.created_at)} ?\n\nCela supprimera définitivement les ${log.inserted} sites importés (ils pourront être réimportés).`)) return
+    setDeletingBatch(log.id)
+    try {
+      if (log.batch_id) {
+        await supabase.from('sites').delete().eq('import_batch_id', log.batch_id)
+      }
+      await supabase.from('import_logs').delete().eq('id', log.id)
+      setImportHistory(prev => prev.filter(l => l.id !== log.id))
+      toast.success('Import supprimé')
+    } catch {
+      toast.error('Erreur lors de la suppression')
+    } finally {
+      setDeletingBatch(null)
+    }
+  }
 
   // ── Étape 1 : chargement du fichier ──────────────────────────
   const handleFile = (file) => {
@@ -158,20 +197,23 @@ export default function ImportPage({ commercials, onClose, onImported }) {
     setIsRunning(true)
     setStep(3)
 
+    const batchId = crypto.randomUUID()
     const prepared = validRows
 
+    // 1. Géocodage batch (1 seule requête HTTP pour tout le fichier)
     let geoResults = prepared.map(() => null)
     if (prepared.some(r => r.address || r.city)) {
       setProgress({ current: 0, total: prepared.length, phase: 'geo' })
       geoResults = await geocodeBatch(
         prepared,
-        { addressCol: 'address', postcodeCol: 'postcode', cityCol: 'city' },
+        { addressCol: 'address', postcodeCol: 'postcode', cityCol: 'city', companyCol: 'company' },
         (cur, tot) => setProgress({ current: cur, total: tot, phase: 'geo' })
       )
     }
 
     setProgress({ current: 0, total: prepared.length, phase: 'db' })
 
+    // 2. Récupérer tous les external_ids existants en une seule requête
     const extIds = prepared.map(r => r.external_id).filter(Boolean)
     let existingMap = new Map()
     if (extIds.length > 0) {
@@ -180,6 +222,7 @@ export default function ImportPage({ commercials, onClose, onImported }) {
       existing?.forEach(s => existingMap.set(s.external_id, s))
     }
 
+    // 3. Séparer nouvelles lignes / mises à jour / ignorées
     const toInsert = []
     const toUpdate = []
     let skipped = 0
@@ -199,8 +242,9 @@ export default function ImportPage({ commercials, onClose, onImported }) {
         notes:   row.notes    || null,
         lat:     geoResults[i]?.lat ?? null,
         lng:     geoResults[i]?.lng ?? null,
-        external_id: row.external_id || null,
-        updated_at:  new Date().toISOString(),
+        external_id:    row.external_id || null,
+        import_batch_id: batchId,
+        updated_at:      new Date().toISOString(),
       }
       if (row.external_id && existingMap.has(row.external_id)) {
         const ex = existingMap.get(row.external_id)
@@ -211,6 +255,7 @@ export default function ImportPage({ commercials, onClose, onImported }) {
       }
     })
 
+    // 4. Batch insert (par blocs de 500)
     let inserted = 0
     const CHUNK = 500
     for (let i = 0; i < toInsert.length; i += CHUNK) {
@@ -220,6 +265,7 @@ export default function ImportPage({ commercials, onClose, onImported }) {
       else inserted += chunk.length
     }
 
+    // 5. Updates individuels
     let updated = 0
     for (const { id, payload } of toUpdate) {
       const { error } = await supabase.from('sites').update(payload).eq('id', id)
@@ -228,6 +274,7 @@ export default function ImportPage({ commercials, onClose, onImported }) {
 
     await supabase.from('import_logs').insert({
       filename: fileName, total: prepared.length, inserted, updated, skipped,
+      batch_id: batchId,
     })
 
     setResults({ inserted, updated, skipped, total: prepared.length })
@@ -256,6 +303,7 @@ export default function ImportPage({ commercials, onClose, onImported }) {
 
   return (
     <div className="h-full flex flex-col bg-gray-50">
+      {/* Header */}
       <div className="flex-shrink-0 bg-blue-950 text-white px-4 py-4 flex items-center gap-3">
         <button onClick={onClose} className="p-2 hover:bg-blue-800 rounded-xl transition-colors">
           <ArrowLeft size={20} />
@@ -266,6 +314,7 @@ export default function ImportPage({ commercials, onClose, onImported }) {
         </div>
       </div>
 
+      {/* Steps */}
       <div className="flex-shrink-0 bg-white border-b px-4 py-3">
         <div className="flex items-center gap-2 max-w-lg">
           {STEPS.map((s, i) => (
@@ -284,8 +333,9 @@ export default function ImportPage({ commercials, onClose, onImported }) {
 
       <div className="flex-1 overflow-y-auto">
 
+        {/* ── STEP 0 : Upload + Historique ── */}
         {step === 0 && (
-          <div className="p-6 max-w-xl mx-auto">
+          <div className="p-6 max-w-xl mx-auto space-y-6">
             <div
               onDragOver={e => { e.preventDefault(); setIsDragging(true) }}
               onDragLeave={() => setIsDragging(false)}
@@ -302,21 +352,65 @@ export default function ImportPage({ commercials, onClose, onImported }) {
               <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
                 onChange={e => handleFile(e.target.files[0])} />
             </div>
-            <div className="mt-6 bg-blue-50 border border-blue-100 rounded-2xl p-4">
+
+            <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4">
               <div className="flex gap-2 mb-2">
                 <Info size={16} className="text-blue-500 flex-shrink-0 mt-0.5" />
                 <p className="text-sm font-semibold text-blue-800">Comment ça marche</p>
               </div>
               <ul className="text-sm text-blue-700 space-y-1.5 ml-5 list-disc">
                 <li>Exportez votre liste clients/chantiers depuis votre logiciel (Excel ou CSV)</li>
-                <li>Les colonnes Adresse1 + Adresse2 sont <strong>combinées</strong> pour un géocodage précis</li>
-                <li>Les adresses sont converties en coordonnées GPS automatiquement</li>
+                <li>Les colonnes Adresse 1 + Adresse 2 sont <strong>combinées</strong> pour un géocodage précis</li>
+                <li>Si l'adresse échoue, le nom de l'entreprise est utilisé comme recherche de secours</li>
                 <li>Ajoutez une colonne <strong>Code client</strong> pour éviter les doublons lors des mises à jour</li>
               </ul>
+            </div>
+
+            {/* Historique des imports */}
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
+              <div className="flex items-center gap-2 px-4 py-3 border-b">
+                <History size={15} className="text-gray-400" />
+                <p className="font-semibold text-sm text-gray-700">Historique des imports</p>
+              </div>
+              {historyLoading ? (
+                <div className="p-6 flex justify-center">
+                  <Loader2 size={20} className="text-gray-300 animate-spin" />
+                </div>
+              ) : importHistory.length === 0 ? (
+                <div className="p-6 text-center">
+                  <p className="text-sm text-gray-400">Aucun import précédent</p>
+                </div>
+              ) : (
+                <ul className="divide-y divide-gray-50">
+                  {importHistory.map(log => (
+                    <li key={log.id} className="flex items-center gap-3 px-4 py-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800 truncate">{log.filename}</p>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          {fmtDate(log.created_at)} — {log.inserted} ajouté{log.inserted > 1 ? 's' : ''}
+                          {log.updated > 0 && `, ${log.updated} mis à jour`}
+                          {log.skipped > 0 && `, ${log.skipped} ignoré${log.skipped > 1 ? 's' : ''}`}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => handleDeleteBatch(log)}
+                        disabled={deletingBatch === log.id}
+                        className="flex-shrink-0 p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors disabled:opacity-40"
+                        title="Supprimer cet import"
+                      >
+                        {deletingBatch === log.id
+                          ? <Loader2 size={15} className="animate-spin" />
+                          : <Trash2 size={15} />}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
         )}
 
+        {/* ── STEP 1 : Mapping des colonnes ── */}
         {step === 1 && (
           <div className="p-4 max-w-2xl mx-auto">
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm mb-4">
@@ -339,7 +433,7 @@ export default function ImportPage({ commercials, onClose, onImported }) {
                   <p className="text-xs font-semibold text-blue-500 mb-1">ADRESSE (pour placer sur la carte)</p>
                   <div className="bg-blue-50 rounded-xl p-3 mb-2">
                     <p className="text-xs text-blue-600">
-                      Adresse 1 + Adresse 2 sont <strong>combinées</strong> automatiquement — si l'adresse est coupée en deux colonnes, mappez les deux.
+                      Adresse 1 + Adresse 2 sont <strong>combinées</strong> automatiquement. Si l'adresse est introuvable, le nom d'entreprise est utilisé comme secours.
                     </p>
                   </div>
                   <ColSelect label="Adresse 1"   field="address"  hint="Numéro + rue" />
@@ -386,6 +480,7 @@ export default function ImportPage({ commercials, onClose, onImported }) {
           </div>
         )}
 
+        {/* ── STEP 2 : Aperçu ── */}
         {step === 2 && (
           <div className="p-4 max-w-4xl mx-auto">
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mb-4">
@@ -408,6 +503,11 @@ export default function ImportPage({ commercials, onClose, onImported }) {
                   {(mapping.address || mapping.address2 || mapping.city) && (
                     <p className="text-sm text-blue-600 mt-1">
                       📍 Géocodage automatique des adresses (quelques secondes)
+                    </p>
+                  )}
+                  {mapping.company && (
+                    <p className="text-sm text-purple-600 mt-0.5">
+                      🏢 Fallback entreprise activé pour les adresses introuvables
                     </p>
                   )}
                 </div>
@@ -470,6 +570,7 @@ export default function ImportPage({ commercials, onClose, onImported }) {
           </div>
         )}
 
+        {/* ── STEP 3 : Import en cours / Résultats ── */}
         {step === 3 && (
           <div className="p-6 max-w-md mx-auto flex flex-col items-center text-center">
             {isRunning ? (
