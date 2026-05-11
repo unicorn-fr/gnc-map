@@ -1,27 +1,8 @@
 import { useState } from 'react'
 import { X, Camera, Loader2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { compressImage } from '../lib/compressImage'
 import toast from 'react-hot-toast'
-
-const compressImage = (file) =>
-  new Promise((resolve) => {
-    const canvas = document.createElement('canvas')
-    const ctx = canvas.getContext('2d')
-    const img = new Image()
-    img.onload = () => {
-      const maxSize = 1400
-      const ratio = Math.min(maxSize / img.width, maxSize / img.height, 1)
-      canvas.width = Math.round(img.width * ratio)
-      canvas.height = Math.round(img.height * ratio)
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-      canvas.toBlob(
-        (blob) => resolve(new File([blob], file.name, { type: 'image/jpeg' })),
-        'image/jpeg',
-        0.82
-      )
-    }
-    img.src = URL.createObjectURL(file)
-  })
 
 export default function AddSiteModal({ position, commercial, onSave, onClose }) {
   const [form, setForm] = useState({
