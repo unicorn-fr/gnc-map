@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+// supabase est garanti non-null ici (App.jsx vérifie isMisconfigured avant)
 import { MapPin, Loader2 } from 'lucide-react'
 
 export default function CommercialPicker({ onSelect }) {
