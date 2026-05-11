@@ -70,7 +70,6 @@ export default function ImportPage({ commercials, onClose, onImported }) {
     phone: '', email: '', notes: '', external_id: '',
     commercial: '',
   })
-  const [defaultCommercial, setDefaultCommercial] = useState(commercials[0]?.id ?? '')
   const [progress, setProgress] = useState({ current: 0, total: 0 })
   const [results, setResults] = useState(null)
   const [isRunning, setIsRunning] = useState(false)
@@ -130,9 +129,7 @@ export default function ImportPage({ commercials, onClose, onImported }) {
 
     // Si une colonne commercial est mappée et que la valeur ne correspond
     // à aucun des 3 commerciaux → ignorer cette ligne
-    if (mapping.commercial && commercialValue && !matched) return null
-
-    const comm = matched ?? commercials.find(c => c.id === defaultCommercial) ?? commercials[0]
+    if (mapping.commercial && !matched) return null
 
     return {
       name:        mapping.name        ? String(row[mapping.name] ?? '').trim()   : '',
@@ -146,8 +143,8 @@ export default function ImportPage({ commercials, onClose, onImported }) {
       email:       mapping.email       ? String(row[mapping.email] ?? '').trim()   : '',
       notes:       mapping.notes       ? String(row[mapping.notes] ?? '').trim()   : '',
       external_id: mapping.external_id ? String(row[mapping.external_id] ?? '').trim() : '',
-      commercial_id:   comm?.id ?? defaultCommercial,
-      commercial_name: comm?.name ?? '',
+      commercial_id:   matched?.id ?? '',
+      commercial_name: matched?.name ?? '',
     }
   }
 
@@ -383,30 +380,6 @@ export default function ImportPage({ commercials, onClose, onImported }) {
                   </div>
                   <ColSelect label="ID unique (n° client)" field="external_id" />
                 </div>
-              </div>
-            </div>
-
-            {/* Commercial par défaut */}
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mb-4">
-              <p className="text-sm font-semibold text-gray-700 mb-2">
-                Commercial par défaut
-                <span className="text-gray-400 font-normal ml-1">(si la colonne "Commercial" ne correspond pas)</span>
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {commercials.map(c => (
-                  <button
-                    key={c.id}
-                    onClick={() => setDefaultCommercial(c.id)}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-xl border-2 text-sm font-medium transition-all ${
-                      defaultCommercial === c.id
-                        ? 'border-blue-600 bg-blue-50 text-blue-700'
-                        : 'border-gray-200 text-gray-500'
-                    }`}
-                  >
-                    <div className="w-3 h-3 rounded-full" style={{ background: c.color }} />
-                    {c.name}
-                  </button>
-                ))}
               </div>
             </div>
 
