@@ -159,7 +159,7 @@ export default function ImportPage({ commercials, onClose, onImported }) {
     setIsRunning(true)
     setStep(3)
 
-    const prepared = validRows.map(buildPreviewRow)
+    const prepared = validRows
     const needsGeocode = prepared.some(r => r.address || r.city)
     let geoResults = prepared.map(() => null)
 

@@ -114,21 +114,29 @@ export default function MapView({ commercial, onSwitch }) {
   const handleLocateMe = () => {
     if (!navigator.geolocation) return toast.error('Géolocalisation non disponible sur cet appareil')
     toast.loading('Recherche de votre position…', { id: 'locate' })
-    navigator.geolocation.getCurrentPosition(
-      ({ coords: { latitude: lat, longitude: lng } }) => {
-        setUserPosition([lat, lng])
-        setFlyTo({ lat, lng })
-        toast.success('Position trouvée !', { id: 'locate' })
-      },
-      (err) => {
-        if (err.code === 1) {
-          toast.error('Autorisation refusée — activez la localisation dans les réglages de votre navigateur', { id: 'locate' })
-        } else {
-          toast.error('Position introuvable, réessayez en extérieur', { id: 'locate' })
-        }
-      },
-      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
-    )
+
+    const onSuccess = ({ coords: { latitude: lat, longitude: lng } }) => {
+      setUserPosition([lat, lng])
+      setFlyTo({ lat, lng })
+      toast.success('Position trouvée !', { id: 'locate' })
+    }
+
+    const onError = (err) => {
+      if (err.code === 1) {
+        toast.error('Autorisation refusée — activez la localisation dans les réglages de votre navigateur', { id: 'locate' })
+      } else if (err.code === 3) {
+        // Timeout GPS → fallback précision réseau (plus rapide en intérieur)
+        navigator.geolocation.getCurrentPosition(
+          onSuccess,
+          () => toast.error('Position introuvable — réessayez en extérieur', { id: 'locate' }),
+          { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 }
+        )
+      } else {
+        toast.error('Position introuvable — réessayez en extérieur', { id: 'locate' })
+      }
+    }
+
+    navigator.geolocation.getCurrentPosition(onSuccess, onError, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 })
   }
 
   const handleAddHere = () => {
