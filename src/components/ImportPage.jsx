@@ -219,11 +219,12 @@ export default function ImportPage({ commercials, onClose, onImported }) {
       if (row.external_id) {
         const { data: existing } = await supabase
           .from('sites')
-          .select('id')
+          .select('id, deleted')
           .eq('external_id', row.external_id)
           .single()
 
         if (existing) {
+          if (existing.deleted) { skipped++; continue } // Site supprimé → ne pas réimporter
           await supabase.from('sites').update(payload).eq('id', existing.id)
           updated++
           continue

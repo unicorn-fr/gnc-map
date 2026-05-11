@@ -1,12 +1,13 @@
 import { useEffect, useState, useCallback } from 'react'
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet'
 import L from 'leaflet'
-import { Menu, Plus, Navigation } from 'lucide-react'
+import { Menu, Plus, Navigation, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import Sidebar from './Sidebar'
 import AddSiteModal from './AddSiteModal'
 import SiteDetailPanel from './SiteDetailPanel'
 import ImportPage from './ImportPage'
+import ReportsPage from './ReportsPage'
 import toast from 'react-hot-toast'
 
 delete L.Icon.Default.prototype._getIconUrl
@@ -16,10 +17,16 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 })
 
+// Icônes SVG inline pour les pins carte
+const PIN_ICONS = {
+  siege: `<svg viewBox="0 0 24 24" fill="white" width="15" height="15"><path d="M3 21V5l9-2 9 2v16H3zm2-2h5v-3h4v3h5V6.5L12 4.9 5 6.5V19zm4-9h2v2H9v-2zm4 0h2v2h-2v-2zM9 13h2v2H9v-2zm4 0h2v2h-2v-2z"/></svg>`,
+  chantier: `<svg viewBox="0 0 24 24" fill="white" width="15" height="15"><path d="M12 2C8.69 2 6 4.69 6 8H4v2h16V8h-2c0-3.31-2.69-6-6-6zm0 2a4 4 0 0 1 3.86 3H8.14A4 4 0 0 1 12 4zM3 11v2h18v-2H3zm1 3 1.25 6h11.5L19 14H5z"/></svg>`,
+}
+
 const createSiteIcon = (color, type) =>
   L.divIcon({
     className: '',
-    html: `<div class="site-pin-wrap" style="background:${color}"><span class="site-pin-letter">${type === 'siege' ? 'S' : 'C'}</span></div>`,
+    html: `<div class="site-pin-wrap" style="background:${color}"><div class="site-pin-icon">${PIN_ICONS[type] ?? PIN_ICONS.chantier}</div></div>`,
     iconSize: [34, 34],
     iconAnchor: [17, 34],
     popupAnchor: [0, -38],
@@ -60,6 +67,8 @@ export default function MapView({ commercial, onSwitch }) {
   const [addPosition, setAddPosition] = useState(null)
   const [showSidebar, setShowSidebar] = useState(false)
   const [showImport, setShowImport] = useState(false)
+  const [showReports, setShowReports] = useState(false)
+  const [showLocationHelp, setShowLocationHelp] = useState(false)
   const [userPosition, setUserPosition] = useState(null)
   const [visibleCommercials, setVisibleCommercials] = useState(new Set())
   const [visibleTypes, setVisibleTypes] = useState(new Set(['siege', 'chantier']))
@@ -94,7 +103,7 @@ export default function MapView({ commercial, onSwitch }) {
       setAllCommercials(comms)
       setVisibleCommercials(new Set(comms.map(c => c.id)))
     }
-    if (sitesData) setSites(sitesData)
+    if (sitesData) setSites(sitesData.filter(s => !s.deleted))
   }
 
   const setupRealtime = () => {
@@ -111,8 +120,17 @@ export default function MapView({ commercial, onSwitch }) {
     return c?.color ?? '#6B7280'
   }
 
-  const handleLocateMe = () => {
+  const handleLocateMe = async () => {
     if (!navigator.geolocation) return toast.error('Géolocalisation non disponible sur cet appareil')
+
+    // Vérification de la permission si l'API est disponible (pas sur iOS Safari)
+    if (navigator.permissions?.query) {
+      try {
+        const perm = await navigator.permissions.query({ name: 'geolocation' })
+        if (perm.state === 'denied') { setShowLocationHelp(true); return }
+      } catch {}
+    }
+
     toast.loading('Recherche de votre position…', { id: 'locate' })
 
     const onSuccess = ({ coords: { latitude: lat, longitude: lng } }) => {
@@ -123,10 +141,11 @@ export default function MapView({ commercial, onSwitch }) {
 
     const onError = (err) => {
       if (err.code === 1) {
-        toast.error('Autorisation refusée — activez la localisation dans les réglages', { id: 'locate' })
+        toast.dismiss('locate')
+        setShowLocationHelp(true)
         return
       }
-      // Code 2 (indisponible) ou 3 (timeout) → fallback réseau/WiFi, plus fiable en intérieur
+      // Code 2 (indisponible) ou 3 (timeout) → fallback réseau/WiFi
       navigator.geolocation.getCurrentPosition(
         onSuccess,
         () => toast.error('Position introuvable — réessayez en extérieur ou activez le WiFi', { id: 'locate' }),
@@ -165,6 +184,16 @@ export default function MapView({ commercial, onSwitch }) {
         commercials={allCommercials}
         onClose={() => setShowImport(false)}
         onImported={() => { loadAll(); setShowImport(false) }}
+      />
+    )
+  }
+
+  if (showReports) {
+    return (
+      <ReportsPage
+        commercial={commercial}
+        allCommercials={allCommercials}
+        onClose={() => setShowReports(false)}
       />
     )
   }
@@ -219,8 +248,40 @@ export default function MapView({ commercial, onSwitch }) {
                 setShowSidebar(false)
               }}
               onOpenImport={() => { setShowSidebar(false); setShowImport(true) }}
+              onOpenReports={() => { setShowSidebar(false); setShowReports(true) }}
             />
             <div className="flex-1 bg-black/50 backdrop-blur-sm" onClick={() => setShowSidebar(false)} />
+          </div>
+        )}
+
+        {/* Modal aide localisation */}
+        {showLocationHelp && (
+          <div className="absolute inset-0 flex items-end justify-center p-4 pb-8" style={{ zIndex: 2000, background: 'rgba(0,0,0,0.5)' }}>
+            <div className="bg-white rounded-3xl shadow-2xl p-5 w-full max-w-sm">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-bold text-gray-900 text-base">Localisation bloquée</h3>
+                <button onClick={() => setShowLocationHelp(false)} className="p-1.5 hover:bg-gray-100 rounded-xl">
+                  <X size={18} className="text-gray-400" />
+                </button>
+              </div>
+              <p className="text-sm text-gray-600 mb-3">
+                Votre navigateur bloque la localisation. Pour l'activer :
+              </p>
+              <ol className="text-sm text-gray-700 space-y-2 mb-4 list-decimal ml-4">
+                <li><strong>iPhone / iPad :</strong> Réglages → Confidentialité → Service de localisation → Safari → Autoriser</li>
+                <li><strong>Android Chrome :</strong> Appuyer sur 🔒 dans la barre d'adresse → Autorisation du site → Position</li>
+                <li><strong>Ordinateur :</strong> Cliquer sur 🔒 dans la barre d'adresse et autoriser la localisation</li>
+              </ol>
+              <button
+                onClick={() => { setShowLocationHelp(false); setTimeout(handleLocateMe, 200) }}
+                className="w-full py-3 bg-blue-700 text-white rounded-2xl font-semibold text-sm mb-2"
+              >
+                Réessayer
+              </button>
+              <button onClick={() => setShowLocationHelp(false)} className="w-full py-2 text-gray-400 text-sm">
+                Fermer
+              </button>
+            </div>
           </div>
         )}
 
@@ -288,11 +349,11 @@ export default function MapView({ commercial, onSwitch }) {
           ))}
           <div className="border-t border-gray-100 pt-2 space-y-1">
             <div className="flex items-center gap-2">
-              <span className="font-bold text-blue-700 w-3 text-center text-[11px]">S</span>
+              <span className="text-base leading-none">🏢</span>
               <span className="text-gray-500">Siège social</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="font-bold text-blue-700 w-3 text-center text-[11px]">C</span>
+              <span className="text-base leading-none">🏗️</span>
               <span className="text-gray-500">Chantier</span>
             </div>
           </div>

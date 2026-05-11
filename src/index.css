@@ -40,6 +40,15 @@ html, body, #root {
   font-family: system-ui, sans-serif;
 }
 
+.site-pin-icon {
+  transform: rotate(45deg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+}
+
 /* Leaflet popup override */
 .leaflet-popup-content-wrapper {
   border-radius: 12px !important;

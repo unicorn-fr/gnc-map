@@ -1,4 +1,4 @@
-import { X, Upload } from 'lucide-react'
+import { X, Upload, FileText } from 'lucide-react'
 
 const TYPE_OPTS = [
   { value: 'chantier', emoji: '🏗️', label: 'Chantiers' },
@@ -9,7 +9,7 @@ export default function Sidebar({
   commercials, sites,
   visibleCommercials, setVisibleCommercials,
   visibleTypes, setVisibleTypes,
-  getColor, onClose, onSelectSite, onOpenImport,
+  getColor, onClose, onSelectSite, onOpenImport, onOpenReports,
 }) {
   const toggleCommercial = (id) => {
     setVisibleCommercials(prev => {
@@ -43,8 +43,8 @@ export default function Sidebar({
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {/* Import Excel button */}
-        <div className="p-4 border-b">
+        {/* Action buttons */}
+        <div className="p-4 border-b space-y-2">
           <button
             onClick={onOpenImport}
             className="w-full flex items-center gap-3 bg-emerald-50 hover:bg-emerald-100 border-2 border-emerald-200 hover:border-emerald-300 text-emerald-700 rounded-2xl px-4 py-3.5 transition-all font-semibold text-sm"
@@ -53,6 +53,16 @@ export default function Sidebar({
             <div className="text-left">
               <p className="font-bold">Importer / Mettre à jour</p>
               <p className="text-emerald-500 text-xs font-normal">Excel ou CSV depuis votre logiciel</p>
+            </div>
+          </button>
+          <button
+            onClick={onOpenReports}
+            className="w-full flex items-center gap-3 bg-blue-50 hover:bg-blue-100 border-2 border-blue-100 hover:border-blue-200 text-blue-700 rounded-2xl px-4 py-3.5 transition-all font-semibold text-sm"
+          >
+            <FileText size={18} />
+            <div className="text-left">
+              <p className="font-bold">Mes rapports</p>
+              <p className="text-blue-400 text-xs font-normal">Comptes rendus par date</p>
             </div>
           </button>
         </div>

@@ -127,8 +127,8 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
   }
 
   const handleDelete = async () => {
-    if (!window.confirm(`Supprimer "${site.name}" ? Action irréversible.`)) return
-    await supabase.from('sites').delete().eq('id', site.id)
+    if (!window.confirm(`Supprimer "${site.name}" ?\n\nSi ce site a un Code client, il ne sera pas réimporté lors des prochaines importations Excel.`)) return
+    await supabase.from('sites').update({ deleted: true, updated_at: new Date().toISOString() }).eq('id', site.id)
     toast.success('Site supprimé')
     onUpdated()
   }
