@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet'
 import L from 'leaflet'
-import { Menu, Plus, Navigation, RefreshCw } from 'lucide-react'
+import { Menu, Plus, Navigation } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import Sidebar from './Sidebar'
 import AddSiteModal from './AddSiteModal'
@@ -28,9 +28,9 @@ const createSiteIcon = (color, type) =>
 const createUserIcon = (color) =>
   L.divIcon({
     className: '',
-    html: `<div style="width:16px;height:16px;border-radius:50%;background:${color};border:3px solid white;box-shadow:0 0 0 3px ${color}55;"></div>`,
-    iconSize: [16, 16],
-    iconAnchor: [8, 8],
+    html: `<div style="width:18px;height:18px;border-radius:50%;background:${color};border:3px solid white;box-shadow:0 0 0 4px ${color}44;"></div>`,
+    iconSize: [18, 18],
+    iconAnchor: [9, 9],
   })
 
 function MapInteraction({ onMapClick, flyTo, onFlyToDone }) {
@@ -68,8 +68,21 @@ export default function MapView({ commercial, onSwitch }) {
   useEffect(() => {
     loadAll()
     const cleanup = setupRealtime()
+    // Auto-géolocalisation au démarrage (silencieuse si refusée)
+    autoLocate()
     return cleanup
   }, [])
+
+  const autoLocate = () => {
+    if (!navigator.geolocation) return
+    navigator.geolocation.getCurrentPosition(
+      ({ coords: { latitude: lat, longitude: lng } }) => {
+        setUserPosition([lat, lng])
+        setFlyTo({ lat, lng })
+      },
+      () => {} // silencieux si refusé
+    )
+  }
 
   const loadAll = async () => {
     const [{ data: comms }, { data: sitesData }] = await Promise.all([
@@ -103,9 +116,10 @@ export default function MapView({ commercial, onSwitch }) {
       ({ coords: { latitude: lat, longitude: lng } }) => {
         setUserPosition([lat, lng])
         setFlyTo({ lat, lng })
+        toast.success('Position trouvée !')
       },
-      () => toast.error("Impossible d'obtenir votre position.\nVérifiez les autorisations."),
-      { enableHighAccuracy: true }
+      () => toast.error("Autorisation refusée.\nActivez la localisation dans les réglages."),
+      { enableHighAccuracy: true, timeout: 10000 }
     )
   }
 
@@ -118,7 +132,7 @@ export default function MapView({ commercial, onSwitch }) {
         setShowAddModal(true)
       },
       () => toast.error("Impossible d'obtenir votre position"),
-      { enableHighAccuracy: true }
+      { enableHighAccuracy: true, timeout: 10000 }
     )
   }
 
@@ -142,19 +156,17 @@ export default function MapView({ commercial, onSwitch }) {
   }
 
   return (
-    <div className="h-full flex flex-col">
-      {/* Top bar */}
-      <div className="flex-shrink-0 bg-blue-950 text-white px-4 py-3 flex items-center gap-3 shadow-xl z-10">
-        <button
-          onClick={() => setShowSidebar(true)}
-          className="p-2 hover:bg-blue-800 rounded-xl transition-colors"
-        >
+    // h-dvh = hauteur réelle sur mobile (tient compte de la barre d'adresse du navigateur)
+    <div style={{ height: '100dvh' }} className="flex flex-col">
+
+      {/* Barre du haut */}
+      <div className="flex-shrink-0 bg-blue-950 text-white px-4 py-3 flex items-center gap-3 shadow-xl" style={{ zIndex: 1100 }}>
+        <button onClick={() => setShowSidebar(true)} className="p-2 hover:bg-blue-800 rounded-xl transition-colors">
           <Menu size={20} />
         </button>
         <div className="flex-1 min-w-0">
           <p className="font-extrabold text-base leading-tight tracking-tight">GNC Map</p>
         </div>
-        {/* Current commercial badge — cliquer pour changer */}
         <button
           onClick={onSwitch}
           className="flex items-center gap-2 bg-white/10 hover:bg-white/20 rounded-xl px-3 py-1.5 transition-colors"
@@ -172,11 +184,12 @@ export default function MapView({ commercial, onSwitch }) {
         </button>
       </div>
 
-      {/* Map area */}
-      <div className="flex-1 relative overflow-hidden">
-        {/* Sidebar overlay */}
+      {/* Zone carte */}
+      <div className="flex-1 relative" style={{ minHeight: 0 }}>
+
+        {/* Overlay sidebar */}
         {showSidebar && (
-          <div className="absolute inset-0 z-30 flex">
+          <div className="absolute inset-0 flex" style={{ zIndex: 1200 }}>
             <Sidebar
               commercials={allCommercials}
               sites={sites}
@@ -193,35 +206,29 @@ export default function MapView({ commercial, onSwitch }) {
               }}
               onOpenImport={() => { setShowSidebar(false); setShowImport(true) }}
             />
-            <div
-              className="flex-1 bg-black/50 backdrop-blur-sm"
-              onClick={() => setShowSidebar(false)}
-            />
+            <div className="flex-1 bg-black/50 backdrop-blur-sm" onClick={() => setShowSidebar(false)} />
           </div>
         )}
 
-        {/* Leaflet map */}
+        {/* Carte Leaflet */}
         <MapContainer
           center={[48.8566, 2.3522]}
-          zoom={10}
-          className="h-full w-full"
+          zoom={6}
+          style={{ height: '100%', width: '100%' }}
           zoomControl={false}
         >
           <TileLayer
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           />
-
           <MapInteraction
             onMapClick={handleMapClick}
             flyTo={flyTo}
             onFlyToDone={() => setFlyTo(null)}
           />
-
           {userPosition && (
             <Marker position={userPosition} icon={createUserIcon(commercial.color)} />
           )}
-
           {filtered.map(site => (
             <Marker
               key={site.id}
@@ -232,8 +239,11 @@ export default function MapView({ commercial, onSwitch }) {
           ))}
         </MapContainer>
 
-        {/* FABs */}
-        <div className="absolute bottom-6 right-4 flex flex-col gap-3 z-20">
+        {/* Boutons flottants — z-index élevé pour passer au-dessus de Leaflet */}
+        <div
+          className="absolute bottom-6 right-4 flex flex-col gap-3"
+          style={{ zIndex: 1000 }}
+        >
           <button
             onClick={handleLocateMe}
             className="w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center text-blue-800 hover:bg-blue-50 active:scale-95 transition-all"
@@ -250,8 +260,11 @@ export default function MapView({ commercial, onSwitch }) {
           </button>
         </div>
 
-        {/* Legend */}
-        <div className="absolute bottom-6 left-4 z-20 bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg p-3 text-xs text-gray-700 space-y-2 max-w-44">
+        {/* Légende */}
+        <div
+          className="absolute bottom-6 left-4 bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg p-3 text-xs text-gray-700 space-y-2 max-w-44"
+          style={{ zIndex: 1000 }}
+        >
           <p className="font-semibold text-gray-400 uppercase tracking-wider text-[10px]">Commerciaux</p>
           {allCommercials.map(c => (
             <div key={c.id} className="flex items-center gap-2">
@@ -269,22 +282,27 @@ export default function MapView({ commercial, onSwitch }) {
               <span className="text-gray-500">Chantier</span>
             </div>
           </div>
+          <p className="text-[10px] text-gray-400 border-t border-gray-100 pt-2">
+            Cliquer sur la carte pour ajouter
+          </p>
         </div>
 
-        {/* Site detail panel */}
+        {/* Panneau détail site */}
         {selectedSite && (
-          <SiteDetailPanel
-            site={selectedSite}
-            commercial={allCommercials.find(c => c.id === selectedSite.commercial_id)}
-            currentCommercialId={commercial.id}
-            color={getColor(selectedSite.commercial_id)}
-            onClose={() => setSelectedSite(null)}
-            onUpdated={() => { loadAll(); setSelectedSite(null) }}
-          />
+          <div className="absolute inset-y-0 right-0" style={{ zIndex: 1050 }}>
+            <SiteDetailPanel
+              site={selectedSite}
+              commercial={allCommercials.find(c => c.id === selectedSite.commercial_id)}
+              currentCommercialId={commercial.id}
+              color={getColor(selectedSite.commercial_id)}
+              onClose={() => setSelectedSite(null)}
+              onUpdated={() => { loadAll(); setSelectedSite(null) }}
+            />
+          </div>
         )}
       </div>
 
-      {/* Add site modal */}
+      {/* Modal ajout site */}
       {showAddModal && (
         <AddSiteModal
           position={addPosition}
