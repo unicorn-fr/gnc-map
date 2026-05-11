@@ -16,8 +16,12 @@ const guessCol = (cols, keywords) => {
 }
 
 const normalizeType = (v = '') => {
-  const s = v.toLowerCase()
-  if (s.includes('siège') || s.includes('siege') || s.includes('social') || s.includes('bureau')) return 'siege'
+  const s = String(v).toLowerCase().trim()
+  // Valeur numérique : 1 = chantier, 0 = siège social
+  if (s === '1') return 'chantier'
+  if (s === '0') return 'siege'
+  // Valeur texte
+  if (s.includes('siège') || s.includes('siege') || s.includes('social') || s.includes('bureau') || s === 'non' || s === 'no') return 'siege'
   return 'chantier'
 }
 
@@ -96,8 +100,8 @@ export default function ImportPage({ commercials, onClose, onImported }) {
         company:     guessCol(cols, ['raison sociale', 'société', 'enseigne', 'entreprise']),
         type:        guessCol(cols, ['type']),
         status:      guessCol(cols, ['statut', 'status', 'état']),
-        address:     guessCol(cols, ['adresse', 'address', 'rue', 'voie', 'street']),
-        postcode:    guessCol(cols, ['cp', 'code postal', 'postal', 'zip', 'code_postal']),
+        address:     guessCol(cols, ['adresse', 'adress', 'address', 'rue', 'voie', 'street']),
+        postcode:    guessCol(cols, ['cp', 'code postal', 'code_postal', 'postal', 'zip', 'codepostal']),
         city:        guessCol(cols, ['ville', 'city', 'commune', 'localité']),
         phone:       guessCol(cols, ['tel', 'phone', 'téléphone', 'telephone', 'mobile']),
         email:       guessCol(cols, ['email', 'mail', 'courriel', 'e-mail']),
@@ -119,9 +123,15 @@ export default function ImportPage({ commercials, onClose, onImported }) {
   }
 
   // ── Étape 3 : aperçu des données ─────────────────────────────
+  // Retourne null si la ligne doit être ignorée (commercial inconnu)
   const buildPreviewRow = (row) => {
-    const commercialValue = mapping.commercial ? String(row[mapping.commercial] ?? '') : ''
+    const commercialValue = mapping.commercial ? String(row[mapping.commercial] ?? '').trim() : ''
     const matched = matchCommercial(commercialValue, commercials)
+
+    // Si une colonne commercial est mappée et que la valeur ne correspond
+    // à aucun des 3 commerciaux → ignorer cette ligne
+    if (mapping.commercial && commercialValue && !matched) return null
+
     const comm = matched ?? commercials.find(c => c.id === defaultCommercial) ?? commercials[0]
 
     return {
@@ -136,16 +146,16 @@ export default function ImportPage({ commercials, onClose, onImported }) {
       email:       mapping.email       ? String(row[mapping.email] ?? '').trim()   : '',
       notes:       mapping.notes       ? String(row[mapping.notes] ?? '').trim()   : '',
       external_id: mapping.external_id ? String(row[mapping.external_id] ?? '').trim() : '',
-      commercial_id: comm?.id ?? defaultCommercial,
+      commercial_id:   comm?.id ?? defaultCommercial,
       commercial_name: comm?.name ?? '',
     }
   }
 
-  const preview = rows.slice(0, 8).map(buildPreviewRow)
-  const validRows = rows.filter(r => {
-    const p = buildPreviewRow(r)
-    return p.name.length > 0
-  })
+  // Lignes valides : nom non vide ET commercial reconnu (buildPreviewRow != null)
+  const allParsed = rows.map(buildPreviewRow)
+  const ignoredCount = allParsed.filter(r => r === null).length
+  const validRows = allParsed.filter(r => r !== null && r.name.length > 0)
+  const preview = rows.slice(0, 8).map(buildPreviewRow).filter(Boolean)
 
   // ── Étape 4 : import ─────────────────────────────────────────
   const runImport = async () => {
@@ -424,13 +434,18 @@ export default function ImportPage({ commercials, onClose, onImported }) {
                 <AlertCircle size={18} className="text-amber-500 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-semibold text-gray-800">
-                    {validRows.length} sites à importer
-                    {validRows.length < rows.length && (
-                      <span className="text-amber-600 font-normal ml-2">
-                        ({rows.length - validRows.length} lignes ignorées — nom manquant)
-                      </span>
-                    )}
+                    {validRows.length} sites à importer sur {rows.length} lignes
                   </p>
+                  {ignoredCount > 0 && (
+                    <p className="text-sm text-amber-600 mt-0.5">
+                      ⚠️ {ignoredCount} ligne{ignoredCount > 1 ? 's ignorées' : ' ignorée'} — commercial non reconnu (autres commerciaux de votre entreprise)
+                    </p>
+                  )}
+                  {(rows.length - validRows.length - ignoredCount) > 0 && (
+                    <p className="text-sm text-gray-400 mt-0.5">
+                      {rows.length - validRows.length - ignoredCount} ligne{rows.length - validRows.length - ignoredCount > 1 ? 's ignorées' : ' ignorée'} — nom manquant
+                    </p>
+                  )}
                   {(mapping.address || mapping.city) && (
                     <p className="text-sm text-gray-500 mt-1">
                       ⏱ Durée estimée : {Math.ceil(validRows.length * 0.35 / 60)} à {Math.ceil(validRows.length * 0.4 / 60)} min (géocodage des adresses)
