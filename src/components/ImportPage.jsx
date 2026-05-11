@@ -207,7 +207,7 @@ export default function ImportPage({ commercials, onClose, onImported }) {
       geoResults = await geocodeBatch(
         prepared,
         { addressCol: 'address', postcodeCol: 'postcode', cityCol: 'city', companyCol: 'company' },
-        (cur, tot) => setProgress({ current: cur, total: tot, phase: 'geo' })
+        (cur, tot, phase) => setProgress({ current: cur, total: tot, phase: phase === 'nominatim' ? 'nominatim' : 'geo' })
       )
     }
 
@@ -580,13 +580,15 @@ export default function ImportPage({ commercials, onClose, onImported }) {
                 </div>
                 <h2 className="text-xl font-bold text-gray-800 mb-2">Import en cours…</h2>
                 <p className="text-gray-500 mb-4 text-sm">
-                  {progress.phase === 'geo'
+                  {progress.phase === 'geo' || progress.phase === 'nominatim'
                     ? progress.current < progress.total
-                      ? `Géocodage des adresses… ${progress.current} / ${progress.total}`
+                      ? progress.phase === 'nominatim'
+                        ? `Recherche entreprises (Nominatim)… ${progress.current} / ${progress.total}`
+                        : `Géocodage des adresses… ${progress.current} / ${progress.total}`
                       : 'Géocodage terminé ✓'
                     : 'Enregistrement dans la base de données…'}
                 </p>
-                {progress.phase === 'geo' && progress.total > 0 && (
+                {(progress.phase === 'geo' || progress.phase === 'nominatim') && progress.total > 0 && (
                   <div className="w-full bg-gray-200 rounded-full h-3">
                     <div
                       className="bg-blue-600 h-3 rounded-full transition-all duration-300"

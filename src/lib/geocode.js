@@ -56,11 +56,11 @@ async function geocodeNominatim(query) {
 
 // ── Batch complet avec fallback entreprise ─────────────────────────
 // cols: { addressCol, postcodeCol, cityCol, companyCol? }
+// onProgress(current, total, phase?) — phase: 'batch' | 'nominatim'
 export async function geocodeBatch(rows, cols, onProgress) {
   const { addressCol, postcodeCol, cityCol, companyCol } = cols
   const results = new Array(rows.length).fill(null)
 
-  // Index des lignes qui ont une adresse ou une ville
   const toGeocode = []
   rows.forEach((row, i) => {
     const addr = addressCol ? String(row[addressCol] ?? '').trim() : ''
@@ -69,9 +69,9 @@ export async function geocodeBatch(rows, cols, onProgress) {
     if (addr || city) toGeocode.push({ i, addr, cp, city })
   })
 
-  if (!toGeocode.length) { onProgress(rows.length, rows.length); return results }
+  if (!toGeocode.length) { onProgress(rows.length, rows.length, 'batch'); return results }
 
-  onProgress(0, rows.length)
+  onProgress(0, rows.length, 'batch')
 
   // ── Étape 1 : batch API data.gouv.fr (1 seule requête) ──────────
   try {
@@ -110,37 +110,43 @@ export async function geocodeBatch(rows, cols, onProgress) {
     }
   } catch { /* fallback below */ }
 
-  // ── Étape 2 : fallback Nominatim pour les lignes sans résultat ──
-  // Utilise le nom d'entreprise pour trouver l'adresse précise
+  const geocodedCount = results.filter(Boolean).length
+  onProgress(geocodedCount, rows.length, 'batch')
+
+  // ── Étape 2 : fallback Nominatim (max 30 lignes) ────────────────
   const failed = toGeocode.filter(r => !results[r.i])
+  // Limité à 30 pour éviter un délai trop long (1,1s/req × Nominatim)
+  const nominatimCandidates = failed.slice(0, 30)
 
-  if (failed.length > 0 && companyCol) {
-    for (const r of failed) {
-      const company = companyCol ? String(rows[r.i]?.[companyCol] ?? '').trim() : ''
-      if (!company) continue
-
-      // Tentative 1 : entreprise + adresse complète
-      const q1 = [company, r.addr, r.cp, r.city].filter(Boolean).join(' ')
-      let geo = await geocodeNominatim(q1)
-
-      // Tentative 2 : entreprise + ville seulement
-      if (!geo && (r.city || r.cp)) {
-        const q2 = [company, r.cp, r.city, 'France'].filter(Boolean).join(' ')
-        geo = await geocodeNominatim(q2)
-        if (geo) await sleep(1100) // respect Nominatim rate limit
+  if (nominatimCandidates.length > 0 && companyCol) {
+    let done = 0
+    for (const r of nominatimCandidates) {
+      const company = String(rows[r.i]?.[companyCol] ?? '').trim()
+      if (company) {
+        const q1 = [company, r.addr, r.cp, r.city].filter(Boolean).join(' ')
+        let geo = await geocodeNominatim(q1)
+        if (!geo && (r.city || r.cp)) {
+          await sleep(1100)
+          const q2 = [company, r.cp, r.city, 'France'].filter(Boolean).join(' ')
+          geo = await geocodeNominatim(q2)
+        }
+        if (geo) results[r.i] = geo
+        await sleep(1100)
       }
-
-      if (geo) results[r.i] = geo
-      await sleep(1100) // Nominatim : max 1 req/sec
+      done++
+      onProgress(geocodedCount + done, rows.length, 'nominatim')
     }
   } else if (failed.length > 0) {
     // Pas de colonne entreprise → fallback série sur data.gouv.fr
+    let done = 0
     for (const r of failed) {
       results[r.i] = await geocodeSingle(r.addr, r.cp, r.city)
       await sleep(200)
+      done++
+      onProgress(geocodedCount + done, rows.length, 'batch')
     }
   }
 
-  onProgress(rows.length, rows.length)
+  onProgress(rows.length, rows.length, 'batch')
   return results
 }
