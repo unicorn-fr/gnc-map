@@ -82,6 +82,8 @@ export default function ImportPage({ commercials, onClose, onImported }) {
   const [importHistory, setImportHistory] = useState([])
   const [deletingId, setDeletingId] = useState(null)
   const [confirmDelete, setConfirmDelete] = useState(null)
+  const [confirmResetAll, setConfirmResetAll] = useState(false)
+  const [isResetting, setIsResetting] = useState(false)
   const fileRef = useRef()
 
   useEffect(() => {
@@ -126,6 +128,36 @@ export default function ImportPage({ commercials, onClose, onImported }) {
       console.error(e)
     } finally {
       setDeletingId(null)
+    }
+  }
+
+  // ── Suppression totale de tous les sites ─────────────────────
+  const handleResetAll = async () => {
+    setConfirmResetAll(false)
+    setIsResetting(true)
+    try {
+      const { error: sitesErr } = await supabase
+        .from('sites')
+        .delete()
+        .neq('id', '00000000-0000-0000-0000-000000000000') // supprime tout
+
+      if (sitesErr) throw sitesErr
+
+      const { error: logsErr } = await supabase
+        .from('import_logs')
+        .delete()
+        .neq('id', '00000000-0000-0000-0000-000000000000')
+
+      if (logsErr) throw logsErr
+
+      toast.success('Tous les sites ont été supprimés de la carte')
+      await loadHistory()
+      onImported()
+    } catch (e) {
+      toast.error('Erreur lors de la réinitialisation')
+      console.error(e)
+    } finally {
+      setIsResetting(false)
     }
   }
 
@@ -447,6 +479,41 @@ export default function ImportPage({ commercials, onClose, onImported }) {
                 </p>
               </div>
             )}
+
+            {/* Bouton de réinitialisation totale */}
+            <div className="mt-6 border border-red-100 rounded-2xl p-4 bg-red-50">
+              <p className="text-xs font-bold text-red-600 uppercase tracking-wider mb-1">Zone danger</p>
+              <p className="text-xs text-red-500 mb-3">
+                Supprime <strong>tous</strong> les sites de la carte, y compris ceux sans log d'import (anciens imports, sites ajoutés manuellement).
+              </p>
+              {confirmResetAll ? (
+                <div className="flex gap-2">
+                  <span className="text-xs text-red-700 font-semibold flex-1 self-center">Confirmer la suppression totale ?</span>
+                  <button
+                    onClick={handleResetAll}
+                    disabled={isResetting}
+                    className="px-4 py-2 bg-red-600 text-white text-xs font-bold rounded-xl"
+                  >
+                    {isResetting ? 'Suppression…' : 'Oui, tout supprimer'}
+                  </button>
+                  <button
+                    onClick={() => setConfirmResetAll(false)}
+                    className="px-4 py-2 bg-white border border-gray-200 text-gray-600 text-xs font-bold rounded-xl"
+                  >
+                    Annuler
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setConfirmResetAll(true)}
+                  disabled={isResetting}
+                  className="w-full py-2.5 border-2 border-red-300 text-red-600 font-semibold text-sm rounded-xl hover:bg-red-100 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Trash2 size={15} />
+                  Vider tous les sites
+                </button>
+              )}
+            </div>
           </div>
         )}
 
