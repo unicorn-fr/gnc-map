@@ -29,12 +29,24 @@ const normalizeStatus = (v = '') => {
   return 'prospect'
 }
 
+// Calcule les initiales d'un nom : "Enzo Mercier" → "EM"
+const getInitials = (name) =>
+  name.trim().split(/\s+/).map(p => p.charAt(0).toUpperCase()).join('')
+
 const matchCommercial = (value, commercials) => {
   if (!value) return null
   const v = String(value).toLowerCase().trim()
+  const vUp = String(value).toUpperCase().trim().replace(/\s+/g, '')
   return (
+    // Correspondance exacte du nom complet
     commercials.find(c => c.name.toLowerCase() === v) ??
-    commercials.find(c => c.name.toLowerCase().includes(v) || v.includes(c.name.toLowerCase().split(' ')[0].toLowerCase())) ??
+    // Initiales : "EM" → "Enzo Mercier", "em" → idem
+    commercials.find(c => getInitials(c.name) === vUp) ??
+    // Contient le prénom ou le nom de famille
+    commercials.find(c => {
+      const parts = c.name.toLowerCase().split(/\s+/)
+      return parts.some(p => p === v || v.includes(p) || p.includes(v))
+    }) ??
     null
   )
 }

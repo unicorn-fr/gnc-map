@@ -68,9 +68,9 @@ export default function MapView({ commercial, onSwitch }) {
   useEffect(() => {
     loadAll()
     const cleanup = setupRealtime()
-    // Auto-géolocalisation au démarrage (silencieuse si refusée)
-    autoLocate()
-    return cleanup
+    // Délai pour laisser la carte Leaflet s'initialiser avant de voler vers la position
+    const timer = setTimeout(autoLocate, 1200)
+    return () => { cleanup(); clearTimeout(timer) }
   }, [])
 
   const autoLocate = () => {
@@ -80,7 +80,8 @@ export default function MapView({ commercial, onSwitch }) {
         setUserPosition([lat, lng])
         setFlyTo({ lat, lng })
       },
-      () => {} // silencieux si refusé
+      () => {}, // silencieux si permission refusée
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
     )
   }
 
@@ -111,15 +112,22 @@ export default function MapView({ commercial, onSwitch }) {
   }
 
   const handleLocateMe = () => {
-    if (!navigator.geolocation) return toast.error('Géolocalisation non disponible')
+    if (!navigator.geolocation) return toast.error('Géolocalisation non disponible sur cet appareil')
+    toast.loading('Recherche de votre position…', { id: 'locate' })
     navigator.geolocation.getCurrentPosition(
       ({ coords: { latitude: lat, longitude: lng } }) => {
         setUserPosition([lat, lng])
         setFlyTo({ lat, lng })
-        toast.success('Position trouvée !')
+        toast.success('Position trouvée !', { id: 'locate' })
       },
-      () => toast.error("Autorisation refusée.\nActivez la localisation dans les réglages."),
-      { enableHighAccuracy: true, timeout: 10000 }
+      (err) => {
+        if (err.code === 1) {
+          toast.error('Autorisation refusée — activez la localisation dans les réglages de votre navigateur', { id: 'locate' })
+        } else {
+          toast.error('Position introuvable, réessayez en extérieur', { id: 'locate' })
+        }
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
     )
   }
 
