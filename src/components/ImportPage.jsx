@@ -8,8 +8,16 @@ import toast from 'react-hot-toast'
 // ── Helpers ──────────────────────────────────────────────────
 const guessCol = (cols, keywords) => {
   const lc = cols.map(c => c.toLowerCase())
+  // Passe 1 : correspondance directe (insensible à la casse)
   for (const kw of keywords) {
     const idx = lc.findIndex(c => c.includes(kw))
+    if (idx >= 0) return cols[idx]
+  }
+  // Passe 2 : après suppression de la ponctuation (gère "C.P." → "cp", "Adresse1" → "adresse1")
+  const stripped = cols.map(c => c.toLowerCase().replace(/[.\s_\-/]/g, ''))
+  for (const kw of keywords) {
+    const kwS = kw.replace(/[.\s_\-/]/g, '')
+    const idx = stripped.findIndex(c => c.includes(kwS))
     if (idx >= 0) return cols[idx]
   }
   return ''
@@ -93,20 +101,26 @@ export default function ImportPage({ commercials, onClose, onImported }) {
       setColumns(cols)
       setRows(parsed)
 
-      // Auto-détection des colonnes
+      // Auto-détection des colonnes (adaptée au format GNC)
       setMapping({
-        name:        guessCol(cols, ['nom', 'raison', 'name', 'entreprise', 'société', 'client']),
+        name:        guessCol(cols, ['raison sociale', 'raison', 'nom', 'name', 'entreprise', 'société', 'client']),
         company:     guessCol(cols, ['raison sociale', 'société', 'enseigne', 'entreprise']),
-        type:        guessCol(cols, ['type']),
-        status:      guessCol(cols, ['statut', 'status', 'état']),
-        address:     guessCol(cols, ['adresse', 'adress', 'address', 'rue', 'voie', 'street']),
-        postcode:    guessCol(cols, ['cp', 'code postal', 'code_postal', 'postal', 'zip', 'codepostal']),
+        // "Chantier" (1/0) prioritaire sur "Type" générique
+        type:        guessCol(cols, ['chantier', 'type']),
+        status:      guessCol(cols, ['actif', 'statut', 'status', 'état']),
+        // "Adresse1" prioritaire sur "Adresse" générique
+        address:     guessCol(cols, ['adresse1', 'adresse', 'adress', 'address', 'rue', 'voie', 'street']),
+        // "C.P." → la passe 2 (stripped) le détecte via "cp"
+        postcode:    guessCol(cols, ['c.p', 'cp', 'code postal', 'code_postal', 'postal', 'zip', 'codepostal']),
         city:        guessCol(cols, ['ville', 'city', 'commune', 'localité']),
-        phone:       guessCol(cols, ['tel', 'phone', 'téléphone', 'telephone', 'mobile']),
-        email:       guessCol(cols, ['email', 'mail', 'courriel', 'e-mail']),
-        notes:       guessCol(cols, ['note', 'obs', 'remarque', 'comment', 'info']),
-        external_id: guessCol(cols, ['id', 'ref', 'code client', 'n°', 'numero', 'numéro', 'identifiant']),
-        commercial:  guessCol(cols, ['commercial', 'vendeur', 'chargé', 'responsable']),
+        phone:       guessCol(cols, ['téléphone', 'telephone', 'tel', 'phone', 'mobile']),
+        email:       guessCol(cols, ['email', 'mail', 'adresse email', 'courriel', 'e-mail']),
+        // "Activité" ou "Secteur" → notes
+        notes:       guessCol(cols, ['activité', 'activite', 'secteur', 'note', 'obs', 'remarque', 'comment', 'info']),
+        // "Code client" → ID unique pour déduplication
+        external_id: guessCol(cols, ['code client', 'id', 'ref', 'n°', 'numero', 'numéro', 'identifiant']),
+        // "Code Représentant" (LJ / CT / EM)
+        commercial:  guessCol(cols, ['représentant', 'representant', 'commercial', 'vendeur', 'chargé', 'responsable']),
       })
 
       setStep(1)
