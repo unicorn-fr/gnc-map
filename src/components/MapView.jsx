@@ -1,22 +1,20 @@
 import { useEffect, useState } from 'react'
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet'
 import L from 'leaflet'
-import { Menu, Plus, Navigation, LogOut } from 'lucide-react'
+import { Menu, Plus, Navigation, RefreshCw } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import Sidebar from './Sidebar'
 import AddSiteModal from './AddSiteModal'
 import SiteDetailPanel from './SiteDetailPanel'
+import ImportPage from './ImportPage'
 import toast from 'react-hot-toast'
 
-// Fix Leaflet icon path issue with Vite bundler
 delete L.Icon.Default.prototype._getIconUrl
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
   iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 })
-
-export const COLORS = ['#2563EB', '#16A34A', '#D97706']
 
 const createSiteIcon = (color, type) =>
   L.divIcon({
@@ -54,16 +52,16 @@ function MapInteraction({ onMapClick, flyTo, onFlyToDone }) {
   return null
 }
 
-export default function MapView({ session }) {
-  const [profile, setProfile] = useState(null)
-  const [allProfiles, setAllProfiles] = useState([])
+export default function MapView({ commercial, onSwitch }) {
+  const [allCommercials, setAllCommercials] = useState([])
   const [sites, setSites] = useState([])
   const [selectedSite, setSelectedSite] = useState(null)
   const [showAddModal, setShowAddModal] = useState(false)
   const [addPosition, setAddPosition] = useState(null)
   const [showSidebar, setShowSidebar] = useState(false)
+  const [showImport, setShowImport] = useState(false)
   const [userPosition, setUserPosition] = useState(null)
-  const [visibleUsers, setVisibleUsers] = useState(new Set())
+  const [visibleCommercials, setVisibleCommercials] = useState(new Set())
   const [visibleTypes, setVisibleTypes] = useState(new Set(['siege', 'chantier']))
   const [flyTo, setFlyTo] = useState(null)
 
@@ -74,36 +72,33 @@ export default function MapView({ session }) {
   }, [])
 
   const loadAll = async () => {
-    const [{ data: prof }, { data: profs }, { data: sitesData }] = await Promise.all([
-      supabase.from('profiles').select('*').eq('id', session.user.id).single(),
-      supabase.from('profiles').select('*').order('created_at'),
+    const [{ data: comms }, { data: sitesData }] = await Promise.all([
+      supabase.from('commercials').select('*').order('created_at'),
       supabase.from('sites').select('*, photos(id, url)').order('created_at', { ascending: false }),
     ])
-
-    if (prof) setProfile(prof)
-    if (profs) {
-      setAllProfiles(profs)
-      setVisibleUsers(new Set(profs.map(p => p.id)))
+    if (comms) {
+      setAllCommercials(comms)
+      setVisibleCommercials(new Set(comms.map(c => c.id)))
     }
     if (sitesData) setSites(sitesData)
   }
 
   const setupRealtime = () => {
-    const channel = supabase
-      .channel('gnc-realtime')
+    const ch = supabase
+      .channel('gnc-realtime-v2')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'sites' }, loadAll)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'photos' }, loadAll)
       .subscribe()
-    return () => supabase.removeChannel(channel)
+    return () => supabase.removeChannel(ch)
   }
 
-  const getColor = (userId) => {
-    const idx = allProfiles.findIndex(p => p.id === userId)
-    return COLORS[idx % COLORS.length] ?? '#6B7280'
+  const getColor = (commercialId) => {
+    const c = allCommercials.find(x => x.id === commercialId)
+    return c?.color ?? '#6B7280'
   }
 
   const handleLocateMe = () => {
-    if (!navigator.geolocation) return toast.error('Géolocalisation non disponible sur cet appareil')
+    if (!navigator.geolocation) return toast.error('Géolocalisation non disponible')
     navigator.geolocation.getCurrentPosition(
       ({ coords: { latitude: lat, longitude: lng } }) => {
         setUserPosition([lat, lng])
@@ -132,9 +127,19 @@ export default function MapView({ session }) {
     setShowAddModal(true)
   }
 
-  const filtered = sites.filter(s => visibleUsers.has(s.user_id) && visibleTypes.has(s.type))
+  const filtered = sites.filter(
+    s => s.lat && s.lng && visibleCommercials.has(s.commercial_id) && visibleTypes.has(s.type)
+  )
 
-  const myColor = profile ? getColor(profile.id) : '#3B82F6'
+  if (showImport) {
+    return (
+      <ImportPage
+        commercials={allCommercials}
+        onClose={() => setShowImport(false)}
+        onImported={() => { loadAll(); setShowImport(false) }}
+      />
+    )
+  }
 
   return (
     <div className="h-full flex flex-col">
@@ -143,28 +148,27 @@ export default function MapView({ session }) {
         <button
           onClick={() => setShowSidebar(true)}
           className="p-2 hover:bg-blue-800 rounded-xl transition-colors"
-          aria-label="Menu"
         >
           <Menu size={20} />
         </button>
         <div className="flex-1 min-w-0">
           <p className="font-extrabold text-base leading-tight tracking-tight">GNC Map</p>
-          {profile && (
-            <p className="text-blue-300 text-xs truncate">{profile.name}</p>
-          )}
         </div>
-        <div
-          className="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-white font-bold text-sm border-2 border-white/30"
-          style={{ background: myColor }}
-        >
-          {profile?.name?.charAt(0)?.toUpperCase() ?? '?'}
-        </div>
+        {/* Current commercial badge — cliquer pour changer */}
         <button
-          onClick={() => supabase.auth.signOut()}
-          className="p-2 hover:bg-blue-800 rounded-xl transition-colors"
-          aria-label="Déconnexion"
+          onClick={onSwitch}
+          className="flex items-center gap-2 bg-white/10 hover:bg-white/20 rounded-xl px-3 py-1.5 transition-colors"
+          title="Changer de commercial"
         >
-          <LogOut size={18} />
+          <div
+            className="w-6 h-6 rounded-lg flex items-center justify-center text-white font-bold text-xs flex-shrink-0"
+            style={{ background: commercial.color }}
+          >
+            {commercial.name.charAt(0).toUpperCase()}
+          </div>
+          <span className="text-white text-xs font-semibold truncate max-w-24">
+            {commercial.name}
+          </span>
         </button>
       </div>
 
@@ -174,19 +178,20 @@ export default function MapView({ session }) {
         {showSidebar && (
           <div className="absolute inset-0 z-30 flex">
             <Sidebar
-              profiles={allProfiles}
+              commercials={allCommercials}
               sites={sites}
-              visibleUsers={visibleUsers}
-              setVisibleUsers={setVisibleUsers}
+              visibleCommercials={visibleCommercials}
+              setVisibleCommercials={setVisibleCommercials}
               visibleTypes={visibleTypes}
               setVisibleTypes={setVisibleTypes}
               getColor={getColor}
               onClose={() => setShowSidebar(false)}
               onSelectSite={(site) => {
                 setSelectedSite(site)
-                setFlyTo({ lat: site.lat, lng: site.lng })
+                if (site.lat && site.lng) setFlyTo({ lat: site.lat, lng: site.lng })
                 setShowSidebar(false)
               }}
+              onOpenImport={() => { setShowSidebar(false); setShowImport(true) }}
             />
             <div
               className="flex-1 bg-black/50 backdrop-blur-sm"
@@ -213,23 +218,21 @@ export default function MapView({ session }) {
             onFlyToDone={() => setFlyTo(null)}
           />
 
-          {/* My position dot */}
           {userPosition && (
-            <Marker position={userPosition} icon={createUserIcon(myColor)} />
+            <Marker position={userPosition} icon={createUserIcon(commercial.color)} />
           )}
 
-          {/* Site markers */}
           {filtered.map(site => (
             <Marker
               key={site.id}
               position={[site.lat, site.lng]}
-              icon={createSiteIcon(getColor(site.user_id), site.type)}
+              icon={createSiteIcon(getColor(site.commercial_id), site.type)}
               eventHandlers={{ click: () => setSelectedSite(site) }}
             />
           ))}
         </MapContainer>
 
-        {/* Floating action buttons */}
+        {/* FABs */}
         <div className="absolute bottom-6 right-4 flex flex-col gap-3 z-20">
           <button
             onClick={handleLocateMe}
@@ -249,14 +252,11 @@ export default function MapView({ session }) {
 
         {/* Legend */}
         <div className="absolute bottom-6 left-4 z-20 bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg p-3 text-xs text-gray-700 space-y-2 max-w-44">
-          <p className="font-semibold text-gray-500 uppercase tracking-wider text-[10px]">Commerciaux</p>
-          {allProfiles.map((p, i) => (
-            <div key={p.id} className="flex items-center gap-2">
-              <div
-                className="w-3 h-3 rounded-full flex-shrink-0"
-                style={{ background: COLORS[i % COLORS.length] }}
-              />
-              <span className="truncate">{p.name}</span>
+          <p className="font-semibold text-gray-400 uppercase tracking-wider text-[10px]">Commerciaux</p>
+          {allCommercials.map(c => (
+            <div key={c.id} className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: c.color }} />
+              <span className="truncate">{c.name}</span>
             </div>
           ))}
           <div className="border-t border-gray-100 pt-2 space-y-1">
@@ -269,18 +269,15 @@ export default function MapView({ session }) {
               <span className="text-gray-500">Chantier</span>
             </div>
           </div>
-          <p className="text-[10px] text-gray-400 border-t border-gray-100 pt-2">
-            Cliquer sur la carte pour ajouter un point
-          </p>
         </div>
 
         {/* Site detail panel */}
         {selectedSite && (
           <SiteDetailPanel
             site={selectedSite}
-            profile={allProfiles.find(p => p.id === selectedSite.user_id)}
-            currentUserId={session.user.id}
-            color={getColor(selectedSite.user_id)}
+            commercial={allCommercials.find(c => c.id === selectedSite.commercial_id)}
+            currentCommercialId={commercial.id}
+            color={getColor(selectedSite.commercial_id)}
             onClose={() => setSelectedSite(null)}
             onUpdated={() => { loadAll(); setSelectedSite(null) }}
           />
@@ -291,7 +288,7 @@ export default function MapView({ session }) {
       {showAddModal && (
         <AddSiteModal
           position={addPosition}
-          userId={session.user.id}
+          commercial={commercial}
           onSave={() => { loadAll(); setShowAddModal(false) }}
           onClose={() => setShowAddModal(false)}
         />

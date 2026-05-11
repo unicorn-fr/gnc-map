@@ -23,7 +23,7 @@ const compressImage = (file) =>
     img.src = URL.createObjectURL(file)
   })
 
-export default function AddSiteModal({ position, userId, onSave, onClose }) {
+export default function AddSiteModal({ position, commercial, onSave, onClose }) {
   const [form, setForm] = useState({
     name: '',
     company: '',
@@ -39,9 +39,8 @@ export default function AddSiteModal({ position, userId, onSave, onClose }) {
 
   const handlePhotos = (e) => {
     const files = Array.from(e.target.files)
-    const newPreviews = files.map(f => URL.createObjectURL(f))
+    setPreviews(prev => [...prev, ...files.map(f => URL.createObjectURL(f))])
     setPhotoFiles(prev => [...prev, ...files])
-    setPreviews(prev => [...prev, ...newPreviews])
   }
 
   const removePhoto = (i) => {
@@ -58,33 +57,34 @@ export default function AddSiteModal({ position, userId, onSave, onClose }) {
       const { data: site, error: siteErr } = await supabase
         .from('sites')
         .insert({
-          user_id: userId,
+          commercial_id: commercial.id,
           name: form.name.trim(),
           company: form.company.trim() || null,
           type: form.type,
           status: form.status,
           notes: form.notes.trim() || null,
-          lat: position.lat,
-          lng: position.lng,
+          lat: position?.lat ?? null,
+          lng: position?.lng ?? null,
         })
         .select()
         .single()
 
       if (siteErr) throw siteErr
 
-      // Upload photos sequentially
       for (const file of photoFiles) {
         try {
           const compressed = await compressImage(file)
-          const path = `${userId}/${site.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`
+          const path = `${commercial.id}/${site.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`
           const { error: upErr } = await supabase.storage.from('site-photos').upload(path, compressed)
           if (!upErr) {
             const { data: { publicUrl } } = supabase.storage.from('site-photos').getPublicUrl(path)
-            await supabase.from('photos').insert({ site_id: site.id, user_id: userId, url: publicUrl })
+            await supabase.from('photos').insert({
+              site_id: site.id,
+              commercial_id: commercial.id,
+              url: publicUrl,
+            })
           }
-        } catch {
-          // Continue even if one photo fails
-        }
+        } catch { /* continue if a photo fails */ }
       }
 
       toast.success('Site ajouté avec succès !')
@@ -102,12 +102,10 @@ export default function AddSiteModal({ position, userId, onSave, onClose }) {
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
       <div className="relative bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl max-h-[92vh] flex flex-col shadow-2xl">
-        {/* Handle bar (mobile) */}
         <div className="flex justify-center pt-3 sm:hidden">
           <div className="w-10 h-1 bg-gray-200 rounded-full" />
         </div>
 
-        {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b">
           <h2 className="font-bold text-gray-900 text-lg">Nouveau point</h2>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl transition-colors">
@@ -115,16 +113,14 @@ export default function AddSiteModal({ position, userId, onSave, onClose }) {
           </button>
         </div>
 
-        {/* Scrollable form */}
         <form onSubmit={handleSubmit} className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
-          {/* Coordinates badge */}
           {position && (
-            <div className="text-[11px] text-gray-400 bg-gray-50 rounded-xl px-3 py-2 font-mono">
-              📍 {position.lat.toFixed(6)}, {position.lng.toFixed(6)}
+            <div className="text-[11px] text-gray-400 bg-gray-50 rounded-xl px-3 py-2 font-mono flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full" style={{ background: commercial.color }} />
+              {commercial.name} — 📍 {position.lat.toFixed(5)}, {position.lng.toFixed(5)}
             </div>
           )}
 
-          {/* Name */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1.5">
               Nom du site <span className="text-red-500">*</span>
@@ -139,7 +135,6 @@ export default function AddSiteModal({ position, userId, onSave, onClose }) {
             />
           </div>
 
-          {/* Company */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1.5">Entreprise</label>
             <input
@@ -151,7 +146,6 @@ export default function AddSiteModal({ position, userId, onSave, onClose }) {
             />
           </div>
 
-          {/* Type toggle */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2">Type de site</label>
             <div className="grid grid-cols-2 gap-2">
@@ -166,7 +160,7 @@ export default function AddSiteModal({ position, userId, onSave, onClose }) {
                   className={`py-3 rounded-xl border-2 text-sm font-semibold transition-all ${
                     form.type === opt.value
                       ? 'border-blue-600 bg-blue-50 text-blue-700'
-                      : 'border-gray-200 text-gray-500 hover:border-gray-300'
+                      : 'border-gray-200 text-gray-500'
                   }`}
                 >
                   {opt.label}
@@ -175,13 +169,12 @@ export default function AddSiteModal({ position, userId, onSave, onClose }) {
             </div>
           </div>
 
-          {/* Status */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1.5">Statut</label>
             <select
               value={form.status}
               onChange={set('status')}
-              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white transition"
+              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
             >
               <option value="prospect">🔍 Prospect</option>
               <option value="client">✅ Client</option>
@@ -190,7 +183,6 @@ export default function AddSiteModal({ position, userId, onSave, onClose }) {
             </select>
           </div>
 
-          {/* Notes */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1.5">Notes</label>
             <textarea
@@ -198,17 +190,15 @@ export default function AddSiteModal({ position, userId, onSave, onClose }) {
               onChange={set('notes')}
               placeholder="Informations utiles, contact, matériel en place..."
               rows={3}
-              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none transition"
+              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
             />
           </div>
 
-          {/* Photos */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2">Photos</label>
             <label className="flex flex-col items-center gap-2 w-full border-2 border-dashed border-gray-200 hover:border-blue-400 hover:bg-blue-50 rounded-2xl py-5 cursor-pointer transition-all">
               <Camera size={24} className="text-gray-400" />
               <span className="text-sm text-gray-500 font-medium">Prendre / Choisir des photos</span>
-              <span className="text-xs text-gray-400">Appuyez pour ouvrir l'appareil photo</span>
               <input
                 type="file"
                 accept="image/*"
@@ -237,19 +227,18 @@ export default function AddSiteModal({ position, userId, onSave, onClose }) {
             )}
           </div>
 
-          {/* Buttons */}
           <div className="flex gap-3 pt-2 pb-2">
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 py-3.5 border border-gray-200 text-gray-600 rounded-xl font-semibold text-sm hover:bg-gray-50 transition-colors"
+              className="flex-1 py-3.5 border border-gray-200 text-gray-600 rounded-xl font-semibold text-sm hover:bg-gray-50"
             >
               Annuler
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="flex-1 py-3.5 bg-blue-700 text-white rounded-xl font-semibold text-sm flex items-center justify-center gap-2 hover:bg-blue-800 disabled:opacity-60 transition-colors"
+              className="flex-1 py-3.5 bg-blue-700 text-white rounded-xl font-semibold text-sm flex items-center justify-center gap-2 hover:bg-blue-800 disabled:opacity-60"
             >
               {saving ? (
                 <>
