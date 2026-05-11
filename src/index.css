@@ -49,6 +49,13 @@ html, body, #root {
   height: 16px;
 }
 
+.site-pin-emoji {
+  transform: rotate(45deg);
+  font-size: 14px;
+  line-height: 1;
+  display: block;
+}
+
 /* Leaflet popup override */
 .leaflet-popup-content-wrapper {
   border-radius: 12px !important;

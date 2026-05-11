@@ -17,16 +17,10 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 })
 
-// Icônes SVG inline pour les pins carte
-const PIN_ICONS = {
-  siege: `<svg viewBox="0 0 24 24" fill="white" width="15" height="15"><path d="M3 21V5l9-2 9 2v16H3zm2-2h5v-3h4v3h5V6.5L12 4.9 5 6.5V19zm4-9h2v2H9v-2zm4 0h2v2h-2v-2zM9 13h2v2H9v-2zm4 0h2v2h-2v-2z"/></svg>`,
-  chantier: `<svg viewBox="0 0 24 24" fill="white" width="15" height="15"><path d="M12 2C8.69 2 6 4.69 6 8H4v2h16V8h-2c0-3.31-2.69-6-6-6zm0 2a4 4 0 0 1 3.86 3H8.14A4 4 0 0 1 12 4zM3 11v2h18v-2H3zm1 3 1.25 6h11.5L19 14H5z"/></svg>`,
-}
-
 const createSiteIcon = (color, type) =>
   L.divIcon({
     className: '',
-    html: `<div class="site-pin-wrap" style="background:${color}"><div class="site-pin-icon">${PIN_ICONS[type] ?? PIN_ICONS.chantier}</div></div>`,
+    html: `<div class="site-pin-wrap" style="background:${color}"><span class="site-pin-emoji">${type === 'siege' ? '🏢' : '🏗️'}</span></div>`,
     iconSize: [34, 34],
     iconAnchor: [17, 34],
     popupAnchor: [0, -38],
