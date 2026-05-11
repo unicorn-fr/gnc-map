@@ -89,50 +89,38 @@ export default function Sidebar({
         {/* Commercials filter */}
         <div className="p-4 border-b">
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Commerciaux</p>
-          {/* Commerciaux principaux en premier, "Autres agences" séparé en bas */}
-          {[
-            ...commercials.filter(c => c.name !== 'Autres agences'),
-            ...commercials.filter(c => c.name === 'Autres agences'),
-          ].map((c, idx, arr) => {
-            const isAutres = c.name === 'Autres agences'
+          {commercials.map((c) => {
             const color = getColor(c.id)
             const cs = sites.filter(s => s.commercial_id === c.id)
             const active = visibleCommercials.has(c.id)
-            // Séparateur avant "Autres agences"
-            const prevIsAutres = idx > 0 && arr[idx - 1]?.name !== 'Autres agences' && isAutres
             return (
-              <div key={c.id}>
-                {prevIsAutres && (
-                  <div className="border-t border-dashed border-gray-200 my-2" />
-                )}
-                <button
-                  onClick={() => toggleCommercial(c.id)}
-                  className={`w-full flex items-center gap-3 p-3 rounded-2xl mb-2 transition-all ${
-                    active ? 'bg-gray-50' : 'bg-white opacity-50'
-                  }`}
+              <button
+                key={c.id}
+                onClick={() => toggleCommercial(c.id)}
+                className={`w-full flex items-center gap-3 p-3 rounded-2xl mb-2 transition-all ${
+                  active ? 'bg-gray-50' : 'bg-white opacity-50'
+                }`}
+              >
+                <div
+                  className="w-11 h-11 rounded-2xl flex items-center justify-center text-white font-extrabold text-base flex-shrink-0"
+                  style={{ background: color }}
                 >
-                  <div
-                    className="w-11 h-11 rounded-2xl flex items-center justify-center text-white font-extrabold text-base flex-shrink-0"
-                    style={{ background: color }}
-                  >
-                    {isAutres ? '…' : c.name.charAt(0).toUpperCase()}
-                  </div>
-                  <div className="flex-1 text-left min-w-0">
-                    <p className="font-semibold text-sm text-gray-800 truncate">{c.name}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      {cs.filter(s => s.type === 'siege').length} siège ·{' '}
-                      {cs.filter(s => s.type === 'chantier').length} chantier
-                      {isAutres && ' · masqué par défaut'}
-                    </p>
-                  </div>
-                  <div
-                    className={`w-5 h-5 rounded-full flex-shrink-0 transition-all ${
-                      active ? '' : 'border-2 border-gray-300'
-                    }`}
-                    style={active ? { background: color } : {}}
-                  />
-                </button>
-              </div>
+                  {c.name.charAt(0).toUpperCase()}
+                </div>
+                <div className="flex-1 text-left min-w-0">
+                  <p className="font-semibold text-sm text-gray-800 truncate">{c.name}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {cs.filter(s => s.type === 'siege').length} siège ·{' '}
+                    {cs.filter(s => s.type === 'chantier').length} chantier
+                  </p>
+                </div>
+                <div
+                  className={`w-5 h-5 rounded-full flex-shrink-0 transition-all ${
+                    active ? '' : 'border-2 border-gray-300'
+                  }`}
+                  style={active ? { background: color } : {}}
+                />
+              </button>
             )
           })}
         </div>
