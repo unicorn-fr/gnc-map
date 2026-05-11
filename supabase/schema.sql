@@ -44,6 +44,8 @@ create table public.sites (
   email         text,
   notes         text,
   external_id   text,                      -- ID unique pour les imports/MAJ Excel
+  import_log_id uuid,                      -- lien vers l'import source (nullable)
+  deleted       boolean default false,     -- suppression douce
   created_at    timestamptz default now(),
   updated_at    timestamptz default now()
 );
@@ -80,6 +82,11 @@ create table public.import_logs (
   skipped    int  default 0,
   created_at timestamptz default now()
 );
+
+-- Contrainte FK import_log_id (après création de import_logs)
+alter table public.sites
+  add constraint sites_import_log_id_fkey
+  foreign key (import_log_id) references public.import_logs(id) on delete set null;
 
 -- =============================================================
 -- ACCÈS ANON (pas d'authentification requise)
@@ -122,3 +129,4 @@ create policy "storage_delete_anon" on storage.objects
 alter publication supabase_realtime add table public.sites;
 alter publication supabase_realtime add table public.photos;
 alter publication supabase_realtime add table public.reports;
+alter publication supabase_realtime add table public.import_logs;

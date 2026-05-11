@@ -84,7 +84,7 @@ export async function geocodeBatch(rows, cols, onProgress) {
           const lat   = parseFloat(parts[latI])
           const lng   = parseFloat(parts[lngI])
           const score = parseFloat(parts[scI] ?? 0)
-          if (!isNaN(lat) && !isNaN(lng) && score >= 0.3) {
+          if (!isNaN(lat) && !isNaN(lng) && score >= 0.2) {
             results[toGeocode[bi].i] = { lat, lng, score }
           }
         })

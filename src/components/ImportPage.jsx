@@ -1,6 +1,6 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import * as XLSX from 'xlsx'
-import { ArrowLeft, Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Info } from 'lucide-react'
+import { ArrowLeft, Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Info, Trash2, Clock } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { geocodeBatch } from '../lib/geocode'
 import toast from 'react-hot-toast'
@@ -8,12 +8,10 @@ import toast from 'react-hot-toast'
 // ── Helpers ──────────────────────────────────────────────────
 const guessCol = (cols, keywords) => {
   const lc = cols.map(c => c.toLowerCase())
-  // Passe 1 : correspondance directe (insensible à la casse)
   for (const kw of keywords) {
     const idx = lc.findIndex(c => c.includes(kw))
     if (idx >= 0) return cols[idx]
   }
-  // Passe 2 : après suppression de la ponctuation (gère "C.P." → "cp", "Adresse1" → "adresse1")
   const stripped = cols.map(c => c.toLowerCase().replace(/[.\s_\-/]/g, ''))
   for (const kw of keywords) {
     const kwS = kw.replace(/[.\s_\-/]/g, '')
@@ -25,10 +23,8 @@ const guessCol = (cols, keywords) => {
 
 const normalizeType = (v = '') => {
   const s = String(v).toLowerCase().trim()
-  // Valeur numérique : 1 = chantier, 0 = siège social
   if (s === '1') return 'chantier'
   if (s === '0') return 'siege'
-  // Valeur texte
   if (s.includes('siège') || s.includes('siege') || s.includes('social') || s.includes('bureau') || s === 'non' || s === 'no') return 'siege'
   return 'chantier'
 }
@@ -41,7 +37,6 @@ const normalizeStatus = (v = '') => {
   return 'prospect'
 }
 
-// Calcule les initiales d'un nom : "Enzo Mercier" → "EM"
 const getInitials = (name) =>
   name.trim().split(/\s+/).map(p => p.charAt(0).toUpperCase()).join('')
 
@@ -50,11 +45,8 @@ const matchCommercial = (value, commercials) => {
   const v = String(value).toLowerCase().trim()
   const vUp = String(value).toUpperCase().trim().replace(/\s+/g, '')
   return (
-    // Correspondance exacte du nom complet
     commercials.find(c => c.name.toLowerCase() === v) ??
-    // Initiales : "EM" → "Enzo Mercier", "em" → idem
     commercials.find(c => getInitials(c.name) === vUp) ??
-    // Contient le prénom ou le nom de famille
     commercials.find(c => {
       const parts = c.name.toLowerCase().split(/\s+/)
       return parts.some(p => p === v || v.includes(p) || p.includes(v))
@@ -62,6 +54,12 @@ const matchCommercial = (value, commercials) => {
     null
   )
 }
+
+const fmt = (iso) =>
+  new Date(iso).toLocaleString('fr-FR', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
 
 const STEPS = ['Fichier', 'Colonnes', 'Aperçu', 'Import']
 
@@ -81,7 +79,55 @@ export default function ImportPage({ commercials, onClose, onImported }) {
   const [progress, setProgress] = useState({ current: 0, total: 0 })
   const [results, setResults] = useState(null)
   const [isRunning, setIsRunning] = useState(false)
+  const [importHistory, setImportHistory] = useState([])
+  const [deletingId, setDeletingId] = useState(null)
+  const [confirmDelete, setConfirmDelete] = useState(null)
   const fileRef = useRef()
+
+  useEffect(() => {
+    loadHistory()
+  }, [])
+
+  const loadHistory = async () => {
+    const { data } = await supabase
+      .from('import_logs')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(20)
+    if (data) setImportHistory(data)
+  }
+
+  // ── Suppression d'un import et de tous ses sites ──────────────
+  const handleDeleteImport = async (log) => {
+    setConfirmDelete(null)
+    setDeletingId(log.id)
+    try {
+      // Supprimer les sites liés à cet import
+      const { error: sitesErr } = await supabase
+        .from('sites')
+        .delete()
+        .eq('import_log_id', log.id)
+
+      if (sitesErr) throw sitesErr
+
+      // Supprimer le log d'import
+      const { error: logErr } = await supabase
+        .from('import_logs')
+        .delete()
+        .eq('id', log.id)
+
+      if (logErr) throw logErr
+
+      toast.success(`Import "${log.filename}" supprimé — ${log.inserted} site(s) retirés de la carte`)
+      await loadHistory()
+      onImported() // rafraîchir la carte
+    } catch (e) {
+      toast.error('Erreur lors de la suppression')
+      console.error(e)
+    } finally {
+      setDeletingId(null)
+    }
+  }
 
   // ── Étape 1 : chargement du fichier ──────────────────────────
   const handleFile = (file) => {
@@ -101,25 +147,18 @@ export default function ImportPage({ commercials, onClose, onImported }) {
       setColumns(cols)
       setRows(parsed)
 
-      // Auto-détection des colonnes (adaptée au format GNC)
       setMapping({
         name:        guessCol(cols, ['raison sociale', 'raison', 'nom', 'name', 'entreprise', 'société', 'client']),
         company:     guessCol(cols, ['raison sociale', 'société', 'enseigne', 'entreprise']),
-        // "Chantier" (1/0) prioritaire sur "Type" générique
         type:        guessCol(cols, ['chantier', 'type']),
         status:      guessCol(cols, ['actif', 'statut', 'status', 'état']),
-        // "Adresse1" prioritaire sur "Adresse" générique
         address:     guessCol(cols, ['adresse1', 'adresse', 'adress', 'address', 'rue', 'voie', 'street']),
-        // "C.P." → la passe 2 (stripped) le détecte via "cp"
         postcode:    guessCol(cols, ['c.p', 'cp', 'code postal', 'code_postal', 'postal', 'zip', 'codepostal']),
         city:        guessCol(cols, ['ville', 'city', 'commune', 'localité']),
         phone:       guessCol(cols, ['téléphone', 'telephone', 'tel', 'phone', 'mobile']),
         email:       guessCol(cols, ['email', 'mail', 'adresse email', 'courriel', 'e-mail']),
-        // "Activité" ou "Secteur" → notes
         notes:       guessCol(cols, ['activité', 'activite', 'secteur', 'note', 'obs', 'remarque', 'comment', 'info']),
-        // "Code client" → ID unique pour déduplication
         external_id: guessCol(cols, ['code client', 'id', 'ref', 'n°', 'numero', 'numéro', 'identifiant']),
-        // "Code Représentant" (LJ / CT / EM)
         commercial:  guessCol(cols, ['représentant', 'representant', 'commercial', 'vendeur', 'chargé', 'responsable']),
       })
 
@@ -136,15 +175,12 @@ export default function ImportPage({ commercials, onClose, onImported }) {
   }
 
   // ── Étape 3 : aperçu des données ─────────────────────────────
-  // Retourne null si la ligne doit être ignorée (commercial inconnu)
   const buildPreviewRow = (row) => {
     const commercialValue = mapping.commercial ? String(row[mapping.commercial] ?? '').trim() : ''
     const matched = matchCommercial(commercialValue, commercials)
 
-    // Colonne commercial mappée mais valeur inconnue → ignorer la ligne
     if (mapping.commercial && !matched) return null
 
-    // Pas de colonne commercial → premier commercial par défaut
     const comm = matched ?? commercials[0]
     if (!comm) return null
 
@@ -165,7 +201,6 @@ export default function ImportPage({ commercials, onClose, onImported }) {
     }
   }
 
-  // Lignes valides : nom non vide ET commercial reconnu (buildPreviewRow != null)
   const allParsed = rows.map(buildPreviewRow)
   const ignoredCount = allParsed.filter(r => r === null).length
   const validRows = allParsed.filter(r => r !== null && r.name.length > 0)
@@ -180,7 +215,6 @@ export default function ImportPage({ commercials, onClose, onImported }) {
     const needsGeocode = prepared.some(r => r.address || r.city)
     let geoResults = prepared.map(() => null)
 
-    // Géocodage si des adresses sont présentes
     if (needsGeocode) {
       setProgress({ current: 0, total: prepared.length })
       geoResults = await geocodeBatch(
@@ -190,12 +224,28 @@ export default function ImportPage({ commercials, onClose, onImported }) {
       )
     }
 
-    // Insertion / mise à jour dans Supabase
+    // Créer le log d'import en premier pour récupérer son ID
+    const { data: logData } = await supabase
+      .from('import_logs')
+      .insert({
+        filename: fileName,
+        total: prepared.length,
+        inserted: 0,
+        updated: 0,
+        skipped: 0,
+      })
+      .select('id')
+      .single()
+
+    const importLogId = logData?.id ?? null
+
     let inserted = 0, updated = 0, skipped = 0
+    let noCoords = 0
 
     for (let i = 0; i < prepared.length; i++) {
       const row = prepared[i]
       const geo = geoResults[i]
+      if (!geo) noCoords++
 
       const payload = {
         commercial_id: row.commercial_id,
@@ -224,27 +274,30 @@ export default function ImportPage({ commercials, onClose, onImported }) {
           .single()
 
         if (existing) {
-          if (existing.deleted) { skipped++; continue } // Site supprimé → ne pas réimporter
+          if (existing.deleted) { skipped++; continue }
+          // Mise à jour : ne pas changer import_log_id du site existant
           await supabase.from('sites').update(payload).eq('id', existing.id)
           updated++
           continue
         }
       }
 
-      const { error } = await supabase.from('sites').insert(payload)
+      // Nouveau site : lier à cet import
+      const { error } = await supabase.from('sites').insert({
+        ...payload,
+        import_log_id: importLogId,
+      })
       error ? skipped++ : inserted++
     }
 
-    // Enregistrer le journal d'import
-    await supabase.from('import_logs').insert({
-      filename: fileName,
-      total: prepared.length,
-      inserted,
-      updated,
-      skipped,
-    })
+    // Mettre à jour le log avec les stats réelles
+    if (importLogId) {
+      await supabase.from('import_logs')
+        .update({ inserted, updated, skipped })
+        .eq('id', importLogId)
+    }
 
-    setResults({ inserted, updated, skipped, total: prepared.length })
+    setResults({ inserted, updated, skipped, total: prepared.length, noCoords })
     setIsRunning(false)
   }
 
@@ -341,6 +394,59 @@ export default function ImportPage({ commercials, onClose, onImported }) {
                 <li>La première ligne doit être les en-têtes de colonnes</li>
               </ul>
             </div>
+
+            {/* Import history */}
+            {importHistory.length > 0 && (
+              <div className="mt-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <Clock size={14} className="text-gray-400" />
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Historique des imports</p>
+                </div>
+                <div className="space-y-2">
+                  {importHistory.map(log => (
+                    <div key={log.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm px-4 py-3 flex items-center gap-3">
+                      <FileSpreadsheet size={16} className="text-gray-400 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-gray-800 truncate">{log.filename}</p>
+                        <p className="text-xs text-gray-400">
+                          {fmt(log.created_at)} · {log.inserted} ajouté{log.inserted !== 1 ? 's' : ''}{log.updated > 0 ? ` · ${log.updated} mis à jour` : ''}
+                        </p>
+                      </div>
+                      {deletingId === log.id ? (
+                        <Loader2 size={16} className="text-gray-400 animate-spin flex-shrink-0" />
+                      ) : confirmDelete === log.id ? (
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <span className="text-xs text-red-600 font-medium">Supprimer {log.inserted} site{log.inserted !== 1 ? 's' : ''} ?</span>
+                          <button
+                            onClick={() => handleDeleteImport(log)}
+                            className="px-3 py-1 bg-red-600 text-white text-xs font-bold rounded-lg"
+                          >
+                            Oui
+                          </button>
+                          <button
+                            onClick={() => setConfirmDelete(null)}
+                            className="px-3 py-1 bg-gray-100 text-gray-600 text-xs font-bold rounded-lg"
+                          >
+                            Non
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmDelete(log.id)}
+                          className="p-2 hover:bg-red-50 rounded-xl text-gray-300 hover:text-red-500 transition-colors flex-shrink-0"
+                          title="Supprimer cet import et ses sites"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-400 mt-2 text-center">
+                  Supprimer un import retire de la carte tous les sites importés depuis ce fichier
+                </p>
+              </div>
+            )}
           </div>
         )}
 
@@ -359,13 +465,11 @@ export default function ImportPage({ commercials, onClose, onImported }) {
               <div className="p-4">
                 <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Correspondance des colonnes</p>
 
-                {/* Required */}
                 <div className="mb-4">
                   <p className="text-xs font-semibold text-red-500 mb-2">OBLIGATOIRE</p>
                   <ColSelect label="Nom du site" field="name" required />
                 </div>
 
-                {/* Adresse (géocodage) */}
                 <div className="mb-4">
                   <p className="text-xs font-semibold text-blue-500 mb-1">ADRESSE (pour placer sur la carte)</p>
                   <div className="bg-blue-50 rounded-xl p-3 mb-2">
@@ -376,7 +480,6 @@ export default function ImportPage({ commercials, onClose, onImported }) {
                   <ColSelect label="Ville"       field="city" />
                 </div>
 
-                {/* Infos */}
                 <div className="mb-4">
                   <p className="text-xs font-semibold text-gray-400 mb-2">INFORMATIONS</p>
                   <ColSelect label="Entreprise"  field="company" />
@@ -388,7 +491,6 @@ export default function ImportPage({ commercials, onClose, onImported }) {
                   <ColSelect label="Notes"       field="notes" />
                 </div>
 
-                {/* Deduplication */}
                 <div>
                   <p className="text-xs font-semibold text-emerald-600 mb-1">MISE À JOUR (éviter les doublons)</p>
                   <div className="bg-emerald-50 rounded-xl p-3 mb-2">
@@ -419,7 +521,6 @@ export default function ImportPage({ commercials, onClose, onImported }) {
         {/* ── STEP 2 : Aperçu ── */}
         {step === 2 && (
           <div className="p-4 max-w-4xl mx-auto">
-            {/* Summary */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mb-4">
               <div className="flex items-start gap-3">
                 <AlertCircle size={18} className="text-amber-500 flex-shrink-0 mt-0.5" />
@@ -446,7 +547,6 @@ export default function ImportPage({ commercials, onClose, onImported }) {
               </div>
             </div>
 
-            {/* Preview table */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-4">
               <div className="p-3 border-b bg-gray-50">
                 <p className="text-xs font-semibold text-gray-500">Aperçu des 8 premières lignes</p>
@@ -543,7 +643,7 @@ export default function ImportPage({ commercials, onClose, onImported }) {
                 </div>
                 <h2 className="text-xl font-bold text-gray-800 mb-6">Import terminé !</h2>
 
-                <div className="w-full grid grid-cols-3 gap-3 mb-8">
+                <div className="w-full grid grid-cols-3 gap-3 mb-4">
                   {[
                     { value: results.inserted, label: 'Ajoutés',    color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
                     { value: results.updated,  label: 'Mis à jour', color: 'bg-blue-50 text-blue-700 border-blue-200' },
@@ -556,8 +656,18 @@ export default function ImportPage({ commercials, onClose, onImported }) {
                   ))}
                 </div>
 
+                {results.noCoords > 0 && (
+                  <div className="w-full bg-amber-50 border border-amber-200 rounded-2xl p-3 mb-4 text-left">
+                    <p className="text-xs text-amber-700">
+                      ⚠️ <strong>{results.noCoords} site{results.noCoords > 1 ? 's' : ''}</strong> sans coordonnées GPS — adresse introuvable ou trop imprécise. Ces sites sont enregistrés mais n'apparaissent pas sur la carte.
+                    </p>
+                  </div>
+                )}
+
                 <p className="text-sm text-gray-500 mb-6">
-                  {results.inserted} nouveau{results.inserted !== 1 ? 'x' : ''} site{results.inserted !== 1 ? 's' : ''} ajouté{results.inserted !== 1 ? 's' : ''} sur la carte.
+                  {results.inserted - results.noCoords > 0
+                    ? `${results.inserted - results.noCoords} nouveau${results.inserted - results.noCoords !== 1 ? 'x' : ''} point${results.inserted - results.noCoords !== 1 ? 's' : ''} ajouté${results.inserted - results.noCoords !== 1 ? 's' : ''} sur la carte.`
+                    : ''}
                   {results.updated > 0 && ` ${results.updated} site${results.updated !== 1 ? 's' : ''} mis à jour.`}
                 </p>
 
