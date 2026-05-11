@@ -127,9 +127,12 @@ export default function ImportPage({ commercials, onClose, onImported }) {
     const commercialValue = mapping.commercial ? String(row[mapping.commercial] ?? '').trim() : ''
     const matched = matchCommercial(commercialValue, commercials)
 
-    // Si une colonne commercial est mappée et que la valeur ne correspond
-    // à aucun des 3 commerciaux → ignorer cette ligne
+    // Colonne commercial mappée mais valeur inconnue → ignorer la ligne
     if (mapping.commercial && !matched) return null
+
+    // Pas de colonne commercial → premier commercial par défaut
+    const comm = matched ?? commercials[0]
+    if (!comm) return null
 
     return {
       name:        mapping.name        ? String(row[mapping.name] ?? '').trim()   : '',
@@ -143,8 +146,8 @@ export default function ImportPage({ commercials, onClose, onImported }) {
       email:       mapping.email       ? String(row[mapping.email] ?? '').trim()   : '',
       notes:       mapping.notes       ? String(row[mapping.notes] ?? '').trim()   : '',
       external_id: mapping.external_id ? String(row[mapping.external_id] ?? '').trim() : '',
-      commercial_id:   matched?.id ?? '',
-      commercial_name: matched?.name ?? '',
+      commercial_id:   comm.id,
+      commercial_name: comm.name,
     }
   }
 
@@ -420,8 +423,8 @@ export default function ImportPage({ commercials, onClose, onImported }) {
                     </p>
                   )}
                   {(mapping.address || mapping.city) && (
-                    <p className="text-sm text-gray-500 mt-1">
-                      ⏱ Durée estimée : {Math.ceil(validRows.length * 0.35 / 60)} à {Math.ceil(validRows.length * 0.4 / 60)} min (géocodage des adresses)
+                    <p className="text-sm text-blue-600 mt-1">
+                      📍 Les adresses seront converties en coordonnées GPS (quelques secondes)
                     </p>
                   )}
                 </div>
@@ -497,23 +500,24 @@ export default function ImportPage({ commercials, onClose, onImported }) {
                 </div>
                 <h2 className="text-xl font-bold text-gray-800 mb-2">Import en cours…</h2>
 
-                {progress.total > 0 && (mapping.address || mapping.city) && (
+                {(mapping.address || mapping.city) && (
                   <>
                     <p className="text-gray-500 mb-4 text-sm">
-                      Géocodage des adresses : {progress.current} / {progress.total}
+                      {progress.current < progress.total
+                        ? `Géocodage des adresses… ${progress.current} / ${progress.total}`
+                        : 'Insertion dans la base de données…'}
                     </p>
-                    <div className="w-full bg-gray-200 rounded-full h-3 mb-2">
-                      <div
-                        className="bg-blue-600 h-3 rounded-full transition-all duration-500"
-                        style={{ width: `${Math.round((progress.current / progress.total) * 100)}%` }}
-                      />
-                    </div>
-                    <p className="text-xs text-gray-400">
-                      {Math.round((progress.current / progress.total) * 100)}% — via api-adresse.data.gouv.fr
-                    </p>
+                    {progress.total > 0 && (
+                      <div className="w-full bg-gray-200 rounded-full h-3 mb-2">
+                        <div
+                          className="bg-blue-600 h-3 rounded-full transition-all duration-500"
+                          style={{ width: `${Math.round((progress.current / progress.total) * 100)}%` }}
+                        />
+                      </div>
+                    )}
                   </>
                 )}
-                {progress.total === 0 && (
+                {!mapping.address && !mapping.city && (
                   <p className="text-gray-500 text-sm">Insertion dans la base de données…</p>
                 )}
               </>

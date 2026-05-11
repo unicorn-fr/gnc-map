@@ -123,20 +123,18 @@ export default function MapView({ commercial, onSwitch }) {
 
     const onError = (err) => {
       if (err.code === 1) {
-        toast.error('Autorisation refusée — activez la localisation dans les réglages de votre navigateur', { id: 'locate' })
-      } else if (err.code === 3) {
-        // Timeout GPS → fallback précision réseau (plus rapide en intérieur)
-        navigator.geolocation.getCurrentPosition(
-          onSuccess,
-          () => toast.error('Position introuvable — réessayez en extérieur', { id: 'locate' }),
-          { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 }
-        )
-      } else {
-        toast.error('Position introuvable — réessayez en extérieur', { id: 'locate' })
+        toast.error('Autorisation refusée — activez la localisation dans les réglages', { id: 'locate' })
+        return
       }
+      // Code 2 (indisponible) ou 3 (timeout) → fallback réseau/WiFi, plus fiable en intérieur
+      navigator.geolocation.getCurrentPosition(
+        onSuccess,
+        () => toast.error('Position introuvable — réessayez en extérieur ou activez le WiFi', { id: 'locate' }),
+        { enableHighAccuracy: false, timeout: 20000, maximumAge: 120000 }
+      )
     }
 
-    navigator.geolocation.getCurrentPosition(onSuccess, onError, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 })
+    navigator.geolocation.getCurrentPosition(onSuccess, onError, { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 })
   }
 
   const handleAddHere = () => {

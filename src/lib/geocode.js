@@ -1,55 +1,105 @@
 // Geocodage via l'API officielle française (gratuit, illimité, précis)
 // https://api-adresse.data.gouv.fr
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+function csvEscape(s) {
+  return `"${String(s ?? '').replace(/"/g, '""')}"`
+}
+
+function parseCSVRow(line) {
+  const result = []
+  let cell = '', inQ = false
+  for (let i = 0; i <= line.length; i++) {
+    const c = line[i]
+    if (c === '"') {
+      if (inQ && line[i + 1] === '"') { cell += '"'; i++ }
+      else inQ = !inQ
+    } else if ((c === ',' || c === undefined) && !inQ) {
+      result.push(cell.trim()); cell = ''
+    } else {
+      cell += (c ?? '')
+    }
+  }
+  return result
+}
+
+const sleep = (ms) => new Promise(r => setTimeout(r, ms))
 
 export async function geocodeSingle(address, postcode = '', city = '') {
-  const parts = [address, postcode, city].filter(Boolean).join(' ').trim()
-  if (!parts) return null
-
+  const q = [address, postcode, city].filter(Boolean).join(' ').trim()
+  if (!q) return null
   try {
-    const url = `https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(parts)}&limit=1`
-    const res = await fetch(url)
+    const res = await fetch(`https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(q)}&limit=1`)
     if (!res.ok) return null
     const data = await res.json()
     if (!data.features?.length) return null
-
-    const feature = data.features[0]
-    const [lng, lat] = feature.geometry.coordinates
-    return {
-      lat,
-      lng,
-      label: feature.properties.label,
-      score: feature.properties.score,
-    }
-  } catch {
-    return null
-  }
+    const [lng, lat] = data.features[0].geometry.coordinates
+    return { lat, lng, score: data.features[0].properties.score }
+  } catch { return null }
 }
 
-// Géocode un tableau de lignes avec gestion de la progression
-// Retourne un tableau de résultats (null si échec)
+// Géocode un tableau de lignes via l'API batch CSV (1 requête pour tout le fichier)
 export async function geocodeBatch(rows, cols, onProgress) {
   const { addressCol, postcodeCol, cityCol } = cols
-  const results = []
+  const results = new Array(rows.length).fill(null)
 
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i]
-    const address = addressCol ? String(row[addressCol] ?? '') : ''
-    const postcode = postcodeCol ? String(row[postcodeCol] ?? '') : ''
-    const city = cityCol ? String(row[cityCol] ?? '') : ''
+  const toGeocode = []
+  rows.forEach((row, i) => {
+    const addr = addressCol ? String(row[addressCol] ?? '').trim() : ''
+    const cp   = postcodeCol ? String(row[postcodeCol] ?? '').trim() : ''
+    const city = cityCol     ? String(row[cityCol]     ?? '').trim() : ''
+    if (addr || city) toGeocode.push({ i, addr, cp, city })
+  })
 
-    if (!address && !city) {
-      results.push(null)
-    } else {
-      const result = await geocodeSingle(address, postcode, city)
-      results.push(result)
-      // ~3 req/sec — respectueux de l'API
-      await sleep(340)
+  if (!toGeocode.length) { onProgress(rows.length, rows.length); return results }
+
+  onProgress(0, rows.length)
+
+  // ── Tentative batch (1 requête pour tout) ───────────────────
+  try {
+    const csvLines = [
+      'adresse,code_postal,ville',
+      ...toGeocode.map(r => [csvEscape(r.addr), csvEscape(r.cp), csvEscape(r.city)].join(','))
+    ]
+    const blob = new Blob([csvLines.join('\r\n')], { type: 'text/csv' })
+    const fd = new FormData()
+    fd.append('data', blob, 'addr.csv')
+    fd.append('columns', 'adresse')
+    fd.append('columns', 'code_postal')
+    fd.append('columns', 'ville')
+
+    const res = await fetch('https://api-adresse.data.gouv.fr/search/csv/', { method: 'POST', body: fd })
+
+    if (res.ok) {
+      const text = await res.text()
+      const lines = text.trim().split('\n')
+      const header = parseCSVRow(lines[0])
+      const latI   = header.findIndex(h => h === 'result_latitude')
+      const lngI   = header.findIndex(h => h === 'result_longitude')
+      const scI    = header.findIndex(h => h === 'result_score')
+
+      if (latI >= 0 && lngI >= 0) {
+        lines.slice(1).forEach((line, bi) => {
+          if (!toGeocode[bi]) return
+          const parts = parseCSVRow(line)
+          const lat   = parseFloat(parts[latI])
+          const lng   = parseFloat(parts[lngI])
+          const score = parseFloat(parts[scI] ?? 0)
+          if (!isNaN(lat) && !isNaN(lng) && score >= 0.3) {
+            results[toGeocode[bi].i] = { lat, lng, score }
+          }
+        })
+        onProgress(rows.length, rows.length)
+        return results
+      }
     }
+  } catch { /* fallback below */ }
 
-    onProgress(i + 1, rows.length)
+  // ── Fallback : requêtes individuelles ───────────────────────
+  for (let bi = 0; bi < toGeocode.length; bi++) {
+    const r = toGeocode[bi]
+    results[r.i] = await geocodeSingle(r.addr, r.cp, r.city)
+    onProgress(bi + 1, toGeocode.length)
+    await sleep(200)
   }
-
   return results
 }
