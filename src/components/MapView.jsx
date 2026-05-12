@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef, useMemo, memo } from 'react'
-import Map, { Marker } from 'react-map-gl/maplibre'
+import ReactMap, { Marker } from 'react-map-gl/maplibre'
 import { Menu, Plus, Navigation, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { requestAndSubscribe } from '../lib/push'
@@ -363,7 +363,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         )}
 
         {/* Carte MapLibre GL — rendu WebGL, fluide comme Google Maps */}
-        <Map
+        <ReactMap
           ref={mapRef}
           initialViewState={{ longitude: 2.3522, latitude: 48.8566, zoom: 6 }}
           style={{ width: '100%', height: '100%' }}
@@ -391,7 +391,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
               onSelect={handleSelectSite}
             />
           ))}
-        </Map>
+        </ReactMap>
 
         <div className="absolute bottom-6 right-4 flex flex-col gap-3" style={{ zIndex: 1000 }}>
           <button

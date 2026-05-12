@@ -1,5 +1,5 @@
-const CACHE = 'gnc-map-v9'
-const TILE_CACHE = 'gnc-tiles-v4'
+const CACHE = 'gnc-map-v10'
+const TILE_CACHE = 'gnc-tiles-v5'
 
 self.addEventListener('install', e => {
   self.skipWaiting()
@@ -49,14 +49,21 @@ self.addEventListener('fetch', e => {
     return
   }
 
-  if (url.hostname.includes('tile.openstreetmap.org') || url.hostname.includes('arcgisonline.com') || url.hostname.includes('basemaps.cartocdn.com')) {
+  if (
+    url.hostname.includes('tile.openstreetmap.org') ||
+    url.hostname.includes('arcgisonline.com') ||
+    url.hostname.includes('basemaps.cartocdn.com') ||
+    url.hostname.includes('openfreemap.org')
+  ) {
     e.respondWith(
       caches.open(TILE_CACHE).then(async cache => {
         const cached = await cache.match(e.request)
         if (cached) return cached
         const res = await fetch(e.request)
         if (res.ok) {
-          cache.put(e.request, res.clone())
+          try {
+            cache.put(e.request, res.clone())
+          } catch {}
           if (url.hostname.includes('tile.openstreetmap.org')) {
             prefetchOsmChildren(cache, url)
           }
