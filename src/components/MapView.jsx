@@ -454,7 +454,12 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
               currentCommercialId={commercial.id}
               color={getColor(selectedSite.commercial_id)}
               onClose={() => setSelectedSite(null)}
-              onUpdated={() => {}}
+              onUpdated={(deleted) => {
+                if (deleted && selectedSite) {
+                  setSites(prev => prev.filter(s => s.id !== selectedSite.id))
+                  setSelectedSite(null)
+                }
+              }}
             />
           </div>
         )}
@@ -465,7 +470,10 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         <AddSiteModal
           position={addPosition}
           commercial={commercial}
-          onSave={() => setShowAddModal(false)}
+          onSave={(site) => {
+            setSites(prev => prev.some(s => s.id === site.id) ? prev : [site, ...prev])
+            setShowAddModal(false)
+          }}
           onClose={() => setShowAddModal(false)}
         />
       )}
