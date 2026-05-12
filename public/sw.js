@@ -1,5 +1,5 @@
-const CACHE = 'gnc-map-v8'
-const TILE_CACHE = 'gnc-tiles-v3'
+const CACHE = 'gnc-map-v9'
+const TILE_CACHE = 'gnc-tiles-v4'
 
 self.addEventListener('install', e => {
   self.skipWaiting()
@@ -15,11 +15,32 @@ self.addEventListener('activate', e => {
   )
 })
 
+// Précharge les 4 tuiles enfants (zoom+1) d'une tuile OSM en arrière-plan.
+// Quand l'utilisateur zoome, les tuiles sont déjà dans le cache → zéro latence.
+function prefetchOsmChildren(cache, url) {
+  const m = url.pathname.match(/\/(\d+)\/(\d+)\/(\d+)\.png$/)
+  if (!m) return
+  const z = +m[1], x = +m[2], y = +m[3]
+  if (z < 5 || z > 15) return // hors plage utile — évite d'exploser le cache
+  const subs = ['a', 'b', 'c']
+  const children = [
+    [z+1, 2*x,   2*y  ],
+    [z+1, 2*x+1, 2*y  ],
+    [z+1, 2*x,   2*y+1],
+    [z+1, 2*x+1, 2*y+1],
+  ]
+  children.forEach(([cz, cx, cy], i) => {
+    const childUrl = `https://${subs[i % 3]}.tile.openstreetmap.org/${cz}/${cx}/${cy}.png`
+    cache.match(childUrl).then(hit => {
+      if (!hit) fetch(childUrl).then(r => { if (r.ok) cache.put(childUrl, r) }).catch(() => {})
+    })
+  })
+}
+
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return
   const url = new URL(e.request.url)
 
-  // index.html : toujours depuis le réseau — garantit la dernière version après déploiement
   if (url.pathname === '/' || url.pathname === '/index.html') {
     e.respondWith(
       fetch(e.request, { cache: 'no-store' })
@@ -28,23 +49,24 @@ self.addEventListener('fetch', e => {
     return
   }
 
-  // Tuiles OpenStreetMap : cache-first pour une navigation fluide.
-  // Les tuiles ne changent quasiment jamais — les servir depuis le cache
-  // élimine la latence réseau lors du défilement et du zoom.
   if (url.hostname.includes('tile.openstreetmap.org') || url.hostname.includes('arcgisonline.com') || url.hostname.includes('basemaps.cartocdn.com')) {
     e.respondWith(
       caches.open(TILE_CACHE).then(async cache => {
         const cached = await cache.match(e.request)
         if (cached) return cached
         const res = await fetch(e.request)
-        if (res.ok) cache.put(e.request, res.clone())
+        if (res.ok) {
+          cache.put(e.request, res.clone())
+          if (url.hostname.includes('tile.openstreetmap.org')) {
+            prefetchOsmChildren(cache, url)
+          }
+        }
         return res
       }).catch(() => new Response('', { status: 408 }))
     )
     return
   }
 
-  // Fichiers JS/CSS/images : réseau d'abord (Vite génère des noms hachés, pas de conflit)
   e.respondWith(
     fetch(e.request)
       .then(res => {
@@ -86,8 +108,6 @@ self.addEventListener('notificationclick', e => {
       const existing = wins.find(w => w.url.includes(self.location.origin))
       if (existing) {
         existing.focus()
-        // Envoyer un message plutôt que navigate() : React ne relit pas les
-        // paramètres URL sur une navigation dans un onglet déjà monté.
         existing.postMessage({ type: 'OPEN_URL', url: full })
         return
       }
