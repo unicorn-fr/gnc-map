@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo, memo } from 'react'
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet'
 import L from 'leaflet'
-import { Menu, Plus, Navigation, X, Layers } from 'lucide-react'
+import { Menu, Plus, Navigation, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { requestAndSubscribe } from '../lib/push'
 import { firstName } from '../lib/utils'
@@ -433,14 +433,13 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           preferCanvas={true}
         >
           <TileLayer
-            key={`base-${mapStyle}`}
             url={mapStyle === 'satellite'
               ? "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
               : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"}
             attribution={mapStyle === 'satellite'
-              ? 'Tiles &copy; Esri &mdash; Source: Esri, DigitalGlobe, GeoEye, Earthstar Geographics'
+              ? 'Tiles &copy; Esri'
               : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}
-            subdomains={mapStyle === 'street' ? 'abc' : undefined}
+            subdomains={mapStyle === 'satellite' ? '' : 'abc'}
             keepBuffer={8}
             updateWhenIdle={false}
             updateWhenZooming={false}
@@ -448,10 +447,9 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           />
           {mapStyle === 'satellite' && (
             <TileLayer
-              key="labels"
               url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png"
               subdomains="abcd"
-              opacity={0.9}
+              opacity={0.85}
               keepBuffer={8}
               updateWhenIdle={false}
               updateWhenZooming={false}
@@ -481,14 +479,6 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           style={{ zIndex: 1000 }}
         >
           <button
-            onClick={() => setMapStyle(s => s === 'street' ? 'satellite' : 'street')}
-            className={`w-12 h-12 rounded-full shadow-lg flex items-center justify-center active:scale-95 transition-all ${mapStyle === 'satellite' ? 'bg-blue-700 text-white' : 'bg-white text-blue-800 hover:bg-blue-50'}`}
-            aria-label="Changer la vue de la carte"
-            title={mapStyle === 'satellite' ? 'Vue plan' : 'Vue satellite'}
-          >
-            <Layers size={20} />
-          </button>
-          <button
             onClick={handleLocateMe}
             className="w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center text-blue-800 hover:bg-blue-50 active:scale-95 transition-all"
             aria-label="Ma position"
@@ -503,6 +493,16 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
             <Plus size={30} />
           </button>
         </div>
+
+        {/* Bouton vue satellite — minuscule, coin bas-gauche */}
+        <button
+          onClick={() => setMapStyle(s => s === 'street' ? 'satellite' : 'street')}
+          className={`absolute text-[10px] font-bold px-2 py-1 rounded-lg shadow-md active:scale-95 transition-all select-none ${mapStyle === 'satellite' ? 'bg-blue-700 text-white' : 'bg-white/90 text-gray-700 hover:bg-white'}`}
+          style={{ zIndex: 1001, bottom: '6.5rem', left: '1rem' }}
+          title={mapStyle === 'satellite' ? 'Vue plan' : 'Vue satellite'}
+        >
+          {mapStyle === 'satellite' ? '🗺 Plan' : '🛰 Sat'}
+        </button>
 
         {/* Légende */}
         <div
