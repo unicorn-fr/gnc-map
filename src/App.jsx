@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { Toaster } from 'react-hot-toast'
 import { supabase, isMisconfigured } from './lib/supabase'
+import { checkAndClaimSession, heartbeat, endSession, clearLocalToken } from './lib/session'
 import CommercialPicker from './components/CommercialPicker'
 import MapView from './components/MapView'
 
@@ -56,16 +57,46 @@ function SetupError() {
 export default function App() {
   const [commercial, setCommercial] = useState(null)
   const [loading, setLoading] = useState(true)
+  const heartbeatRef = useRef(null)
 
   useEffect(() => {
     if (isMisconfigured) { setLoading(false); return }
 
     const saved = localStorage.getItem('gnc_commercial')
     if (saved) {
-      try { setCommercial(JSON.parse(saved)) } catch { localStorage.removeItem('gnc_commercial') }
+      try {
+        const c = JSON.parse(saved)
+        // Tenter de reclaimer la session (si expirée ou la nôtre, on passe)
+        checkAndClaimSession(c.id).then(result => {
+          if (result.ok) {
+            setCommercial(c)
+            startHeartbeat(c.id)
+          } else {
+            // Session prise par quelqu'un d'autre → retour au sélecteur
+            localStorage.removeItem('gnc_commercial')
+            clearLocalToken()
+          }
+          setLoading(false)
+        })
+      } catch {
+        localStorage.removeItem('gnc_commercial')
+        setLoading(false)
+      }
+    } else {
+      setLoading(false)
     }
-    setLoading(false)
+
+    return () => stopHeartbeat()
   }, [])
+
+  const startHeartbeat = (commercialId) => {
+    stopHeartbeat()
+    heartbeatRef.current = setInterval(() => heartbeat(commercialId), 60_000)
+  }
+
+  const stopHeartbeat = () => {
+    if (heartbeatRef.current) clearInterval(heartbeatRef.current)
+  }
 
   if (isMisconfigured) return <SetupError />
 
@@ -81,9 +112,12 @@ export default function App() {
   const handleSelect = (c) => {
     localStorage.setItem('gnc_commercial', JSON.stringify(c))
     setCommercial(c)
+    startHeartbeat(c.id)
   }
 
-  const handleSwitch = () => {
+  const handleSwitch = async () => {
+    if (commercial) await endSession(commercial.id)
+    stopHeartbeat()
     localStorage.removeItem('gnc_commercial')
     setCommercial(null)
   }

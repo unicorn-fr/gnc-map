@@ -246,7 +246,9 @@ export default function ImportPage({ commercials, onClose, onImported }) {
   const ignoredCount = rows.length - validRows.length
   const preview = rows.slice(0, 8).map(buildPreviewRow).filter(r => r.name)
 
-  // ── Import ────────────────────────────────────────────────────
+  // ── Import intelligent ───────────────────────────────────────
+  const normName = (s) => String(s ?? '').toLowerCase().trim().replace(/\s+/g, ' ')
+
   const runImport = async () => {
     if (!selectedCommercial) return
     setIsRunning(true)
@@ -265,60 +267,90 @@ export default function ImportPage({ commercials, onClose, onImported }) {
       )
     }
 
+    // Pré-charger TOUS les sites existants de ce commercial (une seule requête)
+    const { data: existingSites } = await supabase
+      .from('sites')
+      .select('id, name, external_id, deleted, address, postcode, city, lat, lng')
+      .eq('commercial_id', selectedCommercial.id)
+
+    const byExtId = {}  // external_id → site
+    const byName  = {}  // normalisé(name) → site
+    for (const s of existingSites ?? []) {
+      if (s.external_id) byExtId[s.external_id] = s
+      byName[normName(s.name)] = s
+    }
+
     const { data: logData } = await supabase
       .from('import_logs')
-      .insert({
-        filename: fileName,
-        total: prepared.length,
-        inserted: 0,
-        updated: 0,
-        skipped: 0,
-      })
+      .insert({ filename: fileName, total: prepared.length, inserted: 0, updated: 0, skipped: 0 })
       .select('id')
       .single()
 
     const importLogId = logData?.id ?? null
     let inserted = 0, updated = 0, skipped = 0, noCoords = 0
 
+    const now = new Date().toISOString()
+
     for (let i = 0; i < prepared.length; i++) {
       const row = prepared[i]
       const geo = geoResults[i]
-      if (!geo) noCoords++
 
-      const payload = {
+      // Recherche du site existant : external_id en priorité, puis nom normalisé
+      const existing = (row.external_id && byExtId[row.external_id]) || byName[normName(row.name)]
+
+      if (existing) {
+        // Site supprimé dans l'app → ne jamais le recréer
+        if (existing.deleted) { skipped++; continue }
+
+        // L'adresse du fichier Excel fait référence (plus à jour que l'app)
+        const addrChanged = (
+          normName(row.address)  !== normName(existing.address  ?? '') ||
+          normName(row.postcode) !== normName(existing.postcode ?? '') ||
+          normName(row.city)     !== normName(existing.city     ?? '')
+        )
+
+        await supabase.from('sites').update({
+          name:        row.name || existing.name,
+          company:     row.company     || null,
+          type:        row.type,
+          status:      row.status,
+          address:     row.address     || null,
+          postcode:    row.postcode    || null,
+          city:        row.city        || null,
+          phone:       row.phone       || null,
+          email:       row.email       || null,
+          notes:       row.notes       || null,
+          external_id: row.external_id || existing.external_id || null,
+          // Géo : nouveau résultat en priorité ; si pas de géo ET adresse inchangée → conserver anciens coords
+          lat:         geo?.lat ?? (addrChanged ? null : existing.lat),
+          lng:         geo?.lng ?? (addrChanged ? null : existing.lng),
+          updated_at:  now,
+        }).eq('id', existing.id)
+
+        updated++
+        continue
+      }
+
+      // Nouveau site
+      if (!geo) noCoords++
+      const { error } = await supabase.from('sites').insert({
         commercial_id: selectedCommercial.id,
         name:          row.name || 'Sans nom',
-        company:       row.company  || null,
+        company:       row.company     || null,
         type:          row.type,
         status:        row.status,
-        address:       row.address  || null,
-        postcode:      row.postcode || null,
-        city:          row.city     || null,
-        phone:         row.phone    || null,
-        email:         row.email    || null,
-        notes:         row.notes    || null,
-        lat:           geo?.lat  ?? null,
-        lng:           geo?.lng  ?? null,
+        address:       row.address     || null,
+        postcode:      row.postcode    || null,
+        city:          row.city        || null,
+        phone:         row.phone       || null,
+        email:         row.email       || null,
+        notes:         row.notes       || null,
         external_id:   row.external_id || null,
-        updated_at:    new Date().toISOString(),
-      }
-
-      if (row.external_id) {
-        const { data: existing } = await supabase
-          .from('sites')
-          .select('id, deleted')
-          .eq('external_id', row.external_id)
-          .single()
-
-        if (existing) {
-          if (existing.deleted) { skipped++; continue }
-          await supabase.from('sites').update(payload).eq('id', existing.id)
-          updated++
-          continue
-        }
-      }
-
-      const { error } = await supabase.from('sites').insert({ ...payload, import_log_id: importLogId })
+        lat:           geo?.lat        ?? null,
+        lng:           geo?.lng        ?? null,
+        updated_at:    now,
+        import_log_id: importLogId,
+      })
       error ? skipped++ : inserted++
     }
 
