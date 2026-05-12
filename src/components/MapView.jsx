@@ -110,32 +110,46 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
     )
   }
 
-  const loadAll = async () => {
+  const loadAll = useCallback(async () => {
     const [{ data: comms }, { data: sitesData }] = await Promise.all([
       supabase.from('commercials').select('*').order('created_at'),
-      supabase.from('sites').select('*, photos(id, url)').order('created_at', { ascending: false }),
+      supabase.from('sites').select('*').order('created_at', { ascending: false }),
     ])
     if (comms) {
       setAllCommercials(comms)
       setVisibleCommercials(prev => {
         if (prev.size === 0) return new Set(comms.map(c => c.id))
-        // Rechargements suivants : ajouter les nouveaux commerciaux sans réinitialiser
         const next = new Set(prev)
         comms.forEach(c => { if (!prev.has(c.id)) next.add(c.id) })
         return next
       })
     }
     if (sitesData) setSites(sitesData.filter(s => !s.deleted))
-  }
+  }, [])
 
-  const setupRealtime = () => {
+  const setupRealtime = useCallback(() => {
     const ch = supabase
-      .channel('gnc-realtime-v2')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'sites' }, loadAll)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'photos' }, loadAll)
+      .channel('gnc-realtime-v3')
+      // Mises à jour incrémentales : pas de loadAll() sur chaque événement,
+      // on met à jour uniquement la ligne concernée dans le state local.
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sites' }, ({ new: site }) => {
+        if (!site.deleted) {
+          setSites(prev => prev.some(s => s.id === site.id) ? prev : [site, ...prev])
+        }
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'sites' }, ({ new: site }) => {
+        setSites(prev =>
+          site.deleted
+            ? prev.filter(s => s.id !== site.id)
+            : prev.map(s => s.id === site.id ? { ...s, ...site } : s)
+        )
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'sites' }, ({ old }) => {
+        setSites(prev => prev.filter(s => s.id !== old.id))
+      })
       .subscribe()
     return () => supabase.removeChannel(ch)
-  }
+  }, [])
 
   const getColor = (commercialId) => {
     const c = allCommercials.find(x => x.id === commercialId)
