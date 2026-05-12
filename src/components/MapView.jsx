@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet'
 import L from 'leaflet'
-import { Menu, Plus, Navigation, X, Download } from 'lucide-react'
+import { Menu, Plus, Navigation, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { requestAndSubscribe } from '../lib/push'
 import { firstName } from '../lib/utils'
@@ -10,6 +10,7 @@ import AddSiteModal from './AddSiteModal'
 import SiteDetailPanel from './SiteDetailPanel'
 import ImportPage from './ImportPage'
 import ReportsPage from './ReportsPage'
+import InstallBanner from './InstallBanner'
 import toast from 'react-hot-toast'
 
 delete L.Icon.Default.prototype._getIconUrl
@@ -75,11 +76,18 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
     loadAll()
     const cleanup = setupRealtime()
     const timer = setTimeout(startTracking, 1200)
-    // Abonnement push en arrière-plan (demande permission si nécessaire)
     requestAndSubscribe(commercial.id)
+
+    // Rafraîchir les données quand l'app revient au premier plan (h24)
+    const handleVisible = () => {
+      if (document.visibilityState === 'visible') loadAll()
+    }
+    document.addEventListener('visibilitychange', handleVisible)
+
     return () => {
       cleanup()
       clearTimeout(timer)
+      document.removeEventListener('visibilitychange', handleVisible)
       if (watchIdRef.current !== null) {
         navigator.geolocation.clearWatch(watchIdRef.current)
       }
@@ -214,22 +222,8 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         <button onClick={() => setShowSidebar(true)} className="p-2 hover:bg-blue-800 rounded-xl transition-colors">
           <Menu size={20} />
         </button>
-        <div className="flex-1 min-w-0 flex items-center gap-2">
+        <div className="flex-1 min-w-0">
           <p className="font-extrabold text-base leading-tight tracking-tight">GNC Map</p>
-          {installPrompt && (
-            <button
-              onClick={async () => {
-                installPrompt.prompt()
-                const { outcome } = await installPrompt.userChoice
-                if (outcome === 'accepted') onInstalled?.()
-              }}
-              className="flex items-center gap-1 bg-white/15 hover:bg-white/25 rounded-lg px-2 py-1 text-[11px] font-semibold transition-all"
-              title="Installer l'application"
-            >
-              <Download size={11} />
-              Installer
-            </button>
-          )}
         </div>
         <button
           onClick={onSwitch}
@@ -418,6 +412,11 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           onClose={() => setShowAddModal(false)}
         />
       )}
+
+      {/* Bannière installation PWA (positionnée en bas, au-dessus des boutons flottants) */}
+      <div className="absolute bottom-28 left-1/2 -translate-x-1/2 w-full max-w-xs px-4" style={{ zIndex: 1100 }}>
+        <InstallBanner installPrompt={installPrompt} onInstalled={onInstalled} />
+      </div>
     </div>
   )
 }

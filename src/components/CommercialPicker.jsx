@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { checkAndClaimSession } from '../lib/session'
 import { firstName } from '../lib/utils'
-import { MapPin, Loader2, AlertCircle, Download } from 'lucide-react'
+import { MapPin, Loader2, AlertCircle } from 'lucide-react'
+import InstallBanner from './InstallBanner'
 
 export default function CommercialPicker({ onSelect, installPrompt, onInstalled }) {
   const [commercials, setCommercials] = useState([])
@@ -112,22 +113,9 @@ export default function CommercialPicker({ onSelect, installPrompt, onInstalled 
         </div>
       )}
 
-      {/* Bouton d'installation PWA */}
-      {installPrompt && (
-        <button
-          onClick={async () => {
-            installPrompt.prompt()
-            const { outcome } = await installPrompt.userChoice
-            if (outcome === 'accepted') onInstalled?.()
-          }}
-          className="mt-8 flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-2xl px-5 py-3 text-white text-sm font-semibold transition-all"
-        >
-          <Download size={16} />
-          Installer l'application sur cet appareil
-        </button>
-      )}
+      <InstallBanner installPrompt={installPrompt} onInstalled={onInstalled} />
 
-      <p className="mt-6 text-white/20 text-xs text-center">
+      <p className="mt-4 text-white/20 text-xs text-center">
         Votre choix est mémorisé — pas de mot de passe requis
       </p>
     </div>
