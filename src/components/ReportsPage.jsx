@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { ArrowLeft, FileText, BookOpen, Loader2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { firstName } from '../lib/utils'
 
 const fmt = (iso) =>
   new Date(iso).toLocaleString('fr-FR', {
@@ -64,6 +65,7 @@ export default function ReportsPage({ commercial, allCommercials, onClose }) {
         supabase
           .from('sites')
           .select('id, name, company, type, commercial_id, created_at, commercials(name, color)')
+          .is('import_log_id', null)  // exclure les sites importés via Excel
           .order('created_at', { ascending: false })
       ),
       applyFilter(
@@ -195,7 +197,7 @@ export default function ReportsPage({ commercial, allCommercials, onClose }) {
               className="w-2 h-2 rounded-full flex-shrink-0"
               style={{ background: filterCommercial === c.id ? 'rgba(255,255,255,0.7)' : c.color }}
             />
-            {c.name}
+            {firstName(c.name)}
           </button>
         ))}
       </div>
@@ -249,7 +251,7 @@ export default function ReportsPage({ commercial, allCommercials, onClose }) {
                     <div className="w-5 h-5 rounded-lg flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0" style={{ background: commColor(report.commercial_id) }}>
                       {(report.commercials?.name ?? '?').charAt(0).toUpperCase()}
                     </div>
-                    <span className="text-xs text-gray-500 font-medium">{report.commercials?.name ?? '—'}</span>
+                    <span className="text-xs text-gray-500 font-medium">{firstName(report.commercials?.name ?? '—')}</span>
                   </div>
                 </div>
               )
@@ -308,7 +310,7 @@ export default function ReportsPage({ commercial, allCommercials, onClose }) {
                                 className="w-3.5 h-3.5 rounded-full flex-shrink-0"
                                 style={{ background: color }}
                               />
-                              <span className="text-[11px] text-gray-500 font-medium">{commName}</span>
+                              <span className="text-[11px] text-gray-500 font-medium">{firstName(commName)}</span>
                               <span className="text-[11px] text-gray-300">·</span>
                               <span className="text-[11px] text-gray-400">{fmtTime(entry.created_at)}</span>
                             </div>

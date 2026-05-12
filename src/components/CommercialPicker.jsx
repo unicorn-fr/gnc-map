@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-// supabase est garanti non-null ici (App.jsx vérifie isMisconfigured avant)
+import { firstName } from '../lib/utils'
 import { MapPin, Loader2 } from 'lucide-react'
 
 export default function CommercialPicker({ onSelect }) {
@@ -60,7 +60,7 @@ export default function CommercialPicker({ onSelect }) {
 
               {/* Name */}
               <div className="flex-1 text-left">
-                <p className="text-white font-bold text-lg leading-tight">{c.name}</p>
+                <p className="text-white font-bold text-lg leading-tight">{firstName(c.name)}</p>
                 <p className="text-white/40 text-sm mt-0.5">Appuyer pour accéder</p>
               </div>
 

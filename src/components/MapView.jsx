@@ -3,6 +3,8 @@ import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-lea
 import L from 'leaflet'
 import { Menu, Plus, Navigation, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { requestAndSubscribe } from '../lib/push'
+import { firstName } from '../lib/utils'
 import Sidebar from './Sidebar'
 import AddSiteModal from './AddSiteModal'
 import SiteDetailPanel from './SiteDetailPanel'
@@ -72,8 +74,9 @@ export default function MapView({ commercial, onSwitch }) {
   useEffect(() => {
     loadAll()
     const cleanup = setupRealtime()
-    // Délai pour laisser la carte Leaflet s'initialiser avant de voler vers la position
     const timer = setTimeout(startTracking, 1200)
+    // Abonnement push en arrière-plan (demande permission si nécessaire)
+    requestAndSubscribe(commercial.id)
     return () => {
       cleanup()
       clearTimeout(timer)
@@ -226,7 +229,7 @@ export default function MapView({ commercial, onSwitch }) {
             {commercial.name.charAt(0).toUpperCase()}
           </div>
           <span className="text-white text-xs font-semibold truncate max-w-24">
-            {commercial.name}
+            {firstName(commercial.name)}
           </span>
         </button>
       </div>

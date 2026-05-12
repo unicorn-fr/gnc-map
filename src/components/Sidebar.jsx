@@ -1,4 +1,5 @@
 import { X, Upload, FileText } from 'lucide-react'
+import { firstName } from '../lib/utils'
 
 const TYPE_OPTS = [
   { value: 'chantier', emoji: '🏗️', label: 'Chantiers' },
@@ -108,7 +109,7 @@ export default function Sidebar({
                   {c.name.charAt(0).toUpperCase()}
                 </div>
                 <div className="flex-1 text-left min-w-0">
-                  <p className="font-semibold text-sm text-gray-800 truncate">{c.name}</p>
+                  <p className="font-semibold text-sm text-gray-800 truncate">{firstName(c.name)}</p>
                   <p className="text-xs text-gray-400 mt-0.5">
                     {cs.filter(s => s.type === 'siege').length} siège ·{' '}
                     {cs.filter(s => s.type === 'chantier').length} chantier

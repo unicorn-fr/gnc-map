@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { X, Camera, Loader2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { sendPushToAll } from '../lib/push'
+import { firstName } from '../lib/utils'
 import toast from 'react-hot-toast'
 
 const compressImage = (file) =>
@@ -122,6 +124,11 @@ export default function AddSiteModal({ position, commercial, onSave, onClose }) 
       }
 
       toast.success('Site ajouté avec succès !')
+      sendPushToAll(
+        `${firstName(commercial.name)} a ajouté un site`,
+        `${form.name.trim()}${form.company.trim() ? ` — ${form.company.trim()}` : ''}`,
+        '/'
+      )
       onSave(site)
     } catch (err) {
       console.error(err)
