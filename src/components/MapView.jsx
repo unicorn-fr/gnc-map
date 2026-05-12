@@ -429,10 +429,14 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           style={{ height: '100%', width: '100%' }}
           zoomControl={false}
           tap={false}
+          preferCanvas={true}
         >
           <TileLayer
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            keepBuffer={4}
+            updateWhenZooming={false}
+            maxZoom={19}
           />
           <MapInteraction
             onMapClick={handleMapClick}

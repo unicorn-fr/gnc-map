@@ -44,18 +44,19 @@ export default function SiteDetailPanel({ site, commercial, currentCommercial, c
     loadReports()
   }, [site.id])
 
-  // Temps réel : photos et rapports mis à jour en direct pour tous les utilisateurs
+  // Temps réel : photos et rapports mis à jour en direct pour tous les utilisateurs.
+  // On appelle loadPhotos()/loadReports() plutôt que d'insérer manuellement dans le state :
+  // cela garantit la jointure correcte (auteur du rapport, etc.) sans race condition.
   useEffect(() => {
     const ch = supabase.channel(`site-detail-${site.id}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'photos', filter: `site_id=eq.${site.id}` }, ({ new: photo }) => {
-        setPhotos(prev => prev.some(p => p.id === photo.id) ? prev : [photo, ...prev])
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'photos', filter: `site_id=eq.${site.id}` }, () => {
+        loadPhotos()
       })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'photos', filter: `site_id=eq.${site.id}` }, ({ old }) => {
         setPhotos(prev => prev.filter(p => p.id !== old.id))
       })
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reports', filter: `site_id=eq.${site.id}` }, ({ new: report }) => {
-        supabase.from('reports').select('*, commercials(id, name)').eq('id', report.id).single()
-          .then(({ data }) => { if (data) setReports(prev => prev.some(r => r.id === data.id) ? prev : [data, ...prev]) })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reports', filter: `site_id=eq.${site.id}` }, () => {
+        loadReports()
       })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'reports', filter: `site_id=eq.${site.id}` }, ({ old }) => {
         setReports(prev => prev.filter(r => r.id !== old.id))
@@ -108,15 +109,28 @@ export default function SiteDetailPanel({ site, commercial, currentCommercial, c
 
   const handleAddReport = async () => {
     if (!newReport.trim()) return
-    const { data } = await supabase.from('reports')
-      .insert({ site_id: site.id, commercial_id: currentCommercialId, content: newReport.trim() })
-      .select('*, commercials(id, name)').single()
-    if (data) {
-      setReports(prev => [data, ...prev])
-      setNewReport('')
-      toast.success('Rapport ajouté')
-      sendPushToAll(`${firstName(currentCommercial?.name ?? '')} — rapport sur ${site.name}`, newReport.trim().slice(0, 80), `/?site=${site.id}`, currentCommercialId)
+    const content = newReport.trim()
+    setNewReport('')  // Vider immédiatement pour l'UX
+
+    const { error } = await supabase.from('reports')
+      .insert({ site_id: site.id, commercial_id: currentCommercialId, content })
+
+    if (error) {
+      setNewReport(content)  // Restaurer si erreur
+      toast.error("Erreur lors de l'ajout du rapport")
+      return
     }
+
+    // Recharger pour avoir la jointure correcte (auteur, etc.)
+    // Le realtime déclenchera aussi loadReports() pour les autres utilisateurs
+    await loadReports()
+    toast.success('Rapport ajouté')
+    sendPushToAll(
+      `${firstName(currentCommercial?.name ?? '')} — rapport sur ${site.name}`,
+      content.slice(0, 80),
+      `/?site=${site.id}`,
+      currentCommercialId
+    )
   }
 
   const handleDeleteReport = async (id) => {

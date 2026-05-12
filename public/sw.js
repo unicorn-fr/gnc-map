@@ -1,15 +1,16 @@
-const CACHE = 'gnc-map-v5'
+const CACHE = 'gnc-map-v6'
+const TILE_CACHE = 'gnc-tiles-v1'
 
 self.addEventListener('install', e => {
-  // Prendre le contrôle immédiatement sans attendre la fermeture des onglets
   self.skipWaiting()
 })
 
 self.addEventListener('activate', e => {
-  // Supprimer les anciens caches, puis prendre le contrôle de tous les clients
   e.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      .then(keys => Promise.all(
+        keys.filter(k => k !== CACHE && k !== TILE_CACHE).map(k => caches.delete(k))
+      ))
       .then(() => clients.claim())
   )
 })
@@ -23,6 +24,22 @@ self.addEventListener('fetch', e => {
     e.respondWith(
       fetch(e.request, { cache: 'no-store' })
         .catch(() => caches.match('/index.html'))
+    )
+    return
+  }
+
+  // Tuiles OpenStreetMap : cache-first pour une navigation fluide.
+  // Les tuiles ne changent quasiment jamais — les servir depuis le cache
+  // élimine la latence réseau lors du défilement et du zoom.
+  if (url.hostname.includes('tile.openstreetmap.org')) {
+    e.respondWith(
+      caches.open(TILE_CACHE).then(async cache => {
+        const cached = await cache.match(e.request)
+        if (cached) return cached
+        const res = await fetch(e.request)
+        if (res.ok) cache.put(e.request, res.clone())
+        return res
+      }).catch(() => new Response('', { status: 408 }))
     )
     return
   }
