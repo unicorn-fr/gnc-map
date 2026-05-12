@@ -70,7 +70,7 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
       } catch { /* ignore */ }
     }
     toast.success('Photo ajoutée')
-    sendPushToAll(`${firstName(commercial?.name ?? '')} — photo sur ${site.name}`, 'Nouvelle photo ajoutée')
+    sendPushToAll(`${firstName(commercial?.name ?? '')} — photo sur ${site.name}`, 'Nouvelle photo ajoutée', '/', currentCommercialId)
   }
 
   const handleDeletePhoto = async (photo) => {
@@ -88,7 +88,7 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
       setReports(prev => [data, ...prev])
       setNewReport('')
       toast.success('Rapport ajouté')
-      sendPushToAll(`${firstName(commercial?.name ?? '')} — rapport sur ${site.name}`, newReport.trim().slice(0, 80))
+      sendPushToAll(`${firstName(commercial?.name ?? '')} — rapport sur ${site.name}`, newReport.trim().slice(0, 80), '/', currentCommercialId)
     }
   }
 
@@ -114,7 +114,7 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
     if (error) return toast.error('Erreur lors de la mise à jour')
     toast.success('Site mis à jour')
     setEditMode(false)
-    sendPushToAll(`${firstName(commercial?.name ?? '')} a modifié ${editForm.name.trim()}`, `Statut : ${STATUS[editForm.status]?.label ?? editForm.status}`)
+    sendPushToAll(`${firstName(commercial?.name ?? '')} a modifié ${editForm.name.trim()}`, `Statut : ${STATUS[editForm.status]?.label ?? editForm.status}`, '/', currentCommercialId)
     onUpdated()
   }
 
@@ -294,14 +294,12 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
                     onClick={() => setLightbox(photo.url)}
                   >
                     <img src={photo.url} alt="" className="w-full h-full object-cover" loading="lazy" />
-                    {isOwner && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDeletePhoto(photo) }}
-                        className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full items-center justify-center text-sm font-bold hidden group-hover:flex shadow"
-                      >
-                        ×
-                      </button>
-                    )}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDeletePhoto(photo) }}
+                      className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full items-center justify-center text-sm font-bold hidden group-hover:flex shadow"
+                    >
+                      ×
+                    </button>
                   </div>
                 ))}
               </div>

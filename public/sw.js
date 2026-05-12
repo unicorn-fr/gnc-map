@@ -1,4 +1,4 @@
-const CACHE = 'gnc-map-v1'
+const CACHE = 'gnc-map-v2'
 const PRECACHE = ['/', '/index.html']
 
 self.addEventListener('install', e => {
@@ -17,11 +17,9 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return
   const url = new URL(e.request.url)
-  // Réseau en priorité, cache en fallback (network-first)
   e.respondWith(
     fetch(e.request)
       .then(res => {
-        // Mettre en cache les assets statiques
         if (res.ok && (url.pathname.match(/\.(js|css|png|svg|ico)$/) || url.pathname === '/')) {
           const clone = res.clone()
           caches.open(CACHE).then(c => c.put(e.request, clone))
@@ -35,15 +33,20 @@ self.addEventListener('fetch', e => {
 // ── Notifications push ────────────────────────────────────────────
 self.addEventListener('push', e => {
   if (!e.data) return
-  const data = e.data.json()
+  let data = {}
+  try { data = e.data.json() } catch { data = { title: 'GNC Map', body: e.data.text() } }
+
+  // Tag unique par notification pour éviter la suppression des doublons sur Android
+  const tag = `gnc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+
   e.waitUntil(
     self.registration.showNotification(data.title ?? 'GNC Map', {
       body: data.body ?? '',
       icon: '/icon-192.png',
       badge: '/icon-192.png',
       data: { url: data.url ?? '/' },
-      tag: data.tag ?? 'gnc-update',
-      renotify: true,
+      tag,
+      vibrate: [200, 100, 200],
     })
   )
 })
