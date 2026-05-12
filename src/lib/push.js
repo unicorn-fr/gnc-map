@@ -1,6 +1,8 @@
 import { supabase } from './supabase'
 
+// Clé publique VAPID — non sensible, peut être hardcodée
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY
+  || 'BEixI07sbksFoFs1ecKbToWKoOo9wX55r1NIM1ABY4YVy_8b89-A6gSQuO4ei8d-U37zv9c9LeujGl7n5ttJ9CE'
 
 function urlBase64ToUint8Array(b64) {
   const pad = '='.repeat((4 - (b64.length % 4)) % 4)
@@ -21,10 +23,6 @@ export async function registerSW() {
 
 export async function requestAndSubscribe(commercialId) {
   if (!('Notification' in window) || !('PushManager' in window)) return
-  if (!VAPID_PUBLIC_KEY) {
-    console.error('[push] VITE_VAPID_PUBLIC_KEY manquante')
-    return
-  }
 
   const perm = Notification.permission === 'granted'
     ? 'granted'
@@ -35,8 +33,7 @@ export async function requestAndSubscribe(commercialId) {
     const reg = await navigator.serviceWorker.ready
     let sub = await reg.pushManager.getSubscription()
 
-    // Si la clé VAPID a changé (ex: après une regénération), l'ancien abonnement
-    // est invalide → forcer une réinscription avec la nouvelle clé.
+    // Si la clé VAPID a changé, l'ancien abonnement est invalide → réinscription
     if (sub) {
       const currentKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
       const existingKey = sub.options?.applicationServerKey
@@ -73,7 +70,6 @@ export async function requestAndSubscribe(commercialId) {
 
 // skipCommercialId : ne pas notifier le commercial qui fait l'action
 export async function sendPushToAll(title, body, url = '/', skipCommercialId = null) {
-  if (!VAPID_PUBLIC_KEY) return
   try {
     const { error } = await supabase.functions.invoke('send-push', {
       body: { title, body, url, skipCommercialId },

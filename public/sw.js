@@ -1,4 +1,4 @@
-const CACHE = 'gnc-map-v2'
+const CACHE = 'gnc-map-v3'
 const PRECACHE = ['/', '/index.html']
 
 self.addEventListener('install', e => {
