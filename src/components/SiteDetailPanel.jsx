@@ -135,7 +135,7 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
 
   return (
     <>
-      <div className="absolute inset-y-0 right-0 w-full sm:w-96 bg-white shadow-2xl z-20 flex flex-col">
+      <div className="absolute inset-0 bg-white shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex-shrink-0 border-b px-4 py-3">
           <div className="flex items-start justify-between gap-2">

@@ -157,19 +157,26 @@ export default function MapView({ commercial, onSwitch }) {
   }
 
   const handleAddHere = () => {
-    if (!navigator.geolocation) return toast.error('Géolocalisation non disponible')
+    // Ouvrir le modal immédiatement, sans bloquer sur la géolocalisation
+    setAddPosition(null)
+    setShowAddModal(true)
+
+    // Tenter la géolocalisation en arrière-plan pour pré-remplir la position
+    if (!navigator.geolocation) return
     navigator.geolocation.getCurrentPosition(
       ({ coords: { latitude: lat, longitude: lng } }) => {
         setUserPosition([lat, lng])
         setAddPosition({ lat, lng })
-        setShowAddModal(true)
       },
-      () => toast.error("Impossible d'obtenir votre position"),
-      { enableHighAccuracy: true, timeout: 10000 }
+      () => {}, // ignorer silencieusement si refusée/timeout
+      { enableHighAccuracy: true, timeout: 8000 }
     )
   }
 
   const handleMapClick = (pos) => {
+    // Désactiver le clic-carte sur mobile : évite d'ouvrir le modal
+    // en voulant simplement naviguer / après avoir tapé un marqueur
+    if (window.matchMedia('(max-width: 640px)').matches || 'ontouchstart' in window) return
     setAddPosition(pos)
     setShowAddModal(true)
   }
@@ -291,6 +298,7 @@ export default function MapView({ commercial, onSwitch }) {
           zoom={6}
           style={{ height: '100%', width: '100%' }}
           zoomControl={false}
+          tap={false}
         >
           <TileLayer
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -309,7 +317,13 @@ export default function MapView({ commercial, onSwitch }) {
               key={site.id}
               position={[site.lat, site.lng]}
               icon={createSiteIcon(getColor(site.commercial_id), site.type)}
-              eventHandlers={{ click: () => setSelectedSite(site) }}
+              eventHandlers={{
+                click: (e) => {
+                  // Empêche le clic de se propager à la carte (évite d'ouvrir AddSiteModal en même temps)
+                  L.DomEvent.stopPropagation(e)
+                  setSelectedSite(site)
+                },
+              }}
             />
           ))}
         </MapContainer>
@@ -357,14 +371,17 @@ export default function MapView({ commercial, onSwitch }) {
               <span className="text-gray-500">Chantier</span>
             </div>
           </div>
-          <p className="text-[10px] text-gray-400 border-t border-gray-100 pt-2">
+          <p className="text-[10px] text-gray-400 border-t border-gray-100 pt-2 hidden sm:block">
             Cliquer sur la carte pour ajouter
+          </p>
+          <p className="text-[10px] text-gray-400 border-t border-gray-100 pt-2 sm:hidden">
+            Bouton + pour ajouter un point
           </p>
         </div>
 
-        {/* Panneau détail site */}
+        {/* Panneau détail site — w-full sur mobile, 384px sur desktop */}
         {selectedSite && (
-          <div className="absolute inset-y-0 right-0" style={{ zIndex: 1050 }}>
+          <div className="absolute inset-y-0 right-0 w-full sm:w-96" style={{ zIndex: 1050 }}>
             <SiteDetailPanel
               site={selectedSite}
               commercial={allCommercials.find(c => c.id === selectedSite.commercial_id)}
