@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import * as XLSX from 'xlsx'
 import { ArrowLeft, Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Info, Trash2, Clock, ChevronRight } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import { geocodeBatch } from '../lib/geocode'
+import { geocodeBatch, geocodeSmart } from '../lib/geocode'
 import toast from 'react-hot-toast'
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -67,6 +67,8 @@ export default function ImportPage({ commercials, onClose, onImported }) {
   const [confirmDelete, setConfirmDelete] = useState(null)
   const [confirmResetAll, setConfirmResetAll] = useState(false)
   const [isResetting, setIsResetting] = useState(false)
+  const [isRegeocing, setIsRegeocing] = useState(false)
+  const [regeoProgress, setRegeoProgress] = useState(null) // { current, total, fixed }
   const fileRef = useRef()
 
   useEffect(() => {
@@ -113,6 +115,49 @@ export default function ImportPage({ commercials, onClose, onImported }) {
       toast.error('Erreur lors de la réinitialisation')
     } finally {
       setIsResetting(false)
+    }
+  }
+
+  // ── Re-géocodage des sites sans coordonnées ──────────────────
+  const handleReGeocode = async () => {
+    setIsRegeocing(true)
+    setRegeoProgress({ current: 0, total: 0, fixed: 0 })
+    try {
+      // Récupérer tous les sites sans coordonnées GPS (lat IS NULL)
+      const { data: missing } = await supabase
+        .from('sites')
+        .select('id, address, postcode, city')
+        .is('lat', null)
+        .eq('deleted', false)
+
+      if (!missing?.length) {
+        toast.success('Tous les sites ont déjà des coordonnées GPS !')
+        setRegeoProgress(null)
+        setIsRegeocing(false)
+        return
+      }
+
+      setRegeoProgress({ current: 0, total: missing.length, fixed: 0 })
+      let fixed = 0
+
+      for (let i = 0; i < missing.length; i++) {
+        const site = missing[i]
+        const geo = await geocodeSmart(site.address ?? '', site.postcode ?? '', site.city ?? '')
+        if (geo) {
+          await supabase.from('sites').update({ lat: geo.lat, lng: geo.lng }).eq('id', site.id)
+          fixed++
+        }
+        setRegeoProgress({ current: i + 1, total: missing.length, fixed })
+      }
+
+      toast.success(`Re-géocodage terminé : ${fixed} / ${missing.length} site(s) placés sur la carte`)
+      onImported()
+    } catch (e) {
+      toast.error('Erreur lors du re-géocodage')
+      console.error(e)
+    } finally {
+      setIsRegeocing(false)
+      setRegeoProgress(null)
     }
   }
 
@@ -436,6 +481,38 @@ export default function ImportPage({ commercials, onClose, onImported }) {
               </div>
             )}
 
+            {/* Re-géocodage */}
+            <div className="mt-6 border border-blue-100 rounded-2xl p-4 bg-blue-50">
+              <p className="text-xs font-bold text-blue-700 uppercase tracking-wider mb-1">Corriger les emplacements</p>
+              <p className="text-xs text-blue-600 mb-3">
+                Relance le géocodage sur tous les sites <strong>sans coordonnées GPS</strong> (points manquants sur la carte),
+                avec 6 stratégies : BAN officielle + Nominatim en fallback.
+              </p>
+              {isRegeocing && regeoProgress ? (
+                <div>
+                  <div className="flex justify-between text-xs text-blue-700 font-semibold mb-1">
+                    <span>{regeoProgress.current} / {regeoProgress.total} adresses traitées</span>
+                    <span>{regeoProgress.fixed} placées ✓</span>
+                  </div>
+                  <div className="w-full bg-blue-200 rounded-full h-2">
+                    <div
+                      className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${Math.round((regeoProgress.current / Math.max(regeoProgress.total, 1)) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={handleReGeocode}
+                  disabled={isRegeocing}
+                  className="w-full py-2.5 border-2 border-blue-300 text-blue-700 font-semibold text-sm rounded-xl hover:bg-blue-100 transition-colors flex items-center justify-center gap-2"
+                >
+                  <Loader2 size={15} className={isRegeocing ? 'animate-spin' : 'hidden'} />
+                  📍 Replacer les sites manquants sur la carte
+                </button>
+              )}
+            </div>
+
             {/* Zone danger */}
             <div className="mt-6 border border-red-100 rounded-2xl p-4 bg-red-50">
               <p className="text-xs font-bold text-red-600 uppercase tracking-wider mb-1">Zone danger</p>
@@ -629,7 +706,7 @@ export default function ImportPage({ commercials, onClose, onImported }) {
                   <>
                     <p className="text-gray-500 mb-4 text-sm">
                       {progress.current < progress.total
-                        ? `Géocodage des adresses… ${progress.current} / ${progress.total}`
+                        ? `Géocodage des adresses… ${progress.current} / ${progress.total} (BAN + Nominatim en fallback)`
                         : 'Insertion dans la base de données…'}
                     </p>
                     {progress.total > 0 && (
@@ -673,7 +750,7 @@ export default function ImportPage({ commercials, onClose, onImported }) {
                 {results.noCoords > 0 && (
                   <div className="w-full bg-amber-50 border border-amber-200 rounded-2xl p-3 mb-4 text-left">
                     <p className="text-xs text-amber-700">
-                      ⚠️ <strong>{results.noCoords} site{results.noCoords > 1 ? 's' : ''}</strong> sans coordonnées GPS — adresse introuvable. Ces sites sont enregistrés mais n'apparaissent pas sur la carte.
+                      ⚠️ <strong>{results.noCoords} site{results.noCoords > 1 ? 's' : ''}</strong> sans coordonnées GPS malgré 6 tentatives (BAN + Nominatim). Ces sites sont enregistrés mais n'apparaissent pas sur la carte. Vérifiez l'adresse dans votre fichier.
                     </p>
                   </div>
                 )}
