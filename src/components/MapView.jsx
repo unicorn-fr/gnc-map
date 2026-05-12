@@ -440,9 +440,10 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
               ? 'Tiles &copy; Esri'
               : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}
             subdomains={mapStyle === 'satellite' ? '' : 'abc'}
-            keepBuffer={8}
+            keepBuffer={12}
             updateWhenIdle={false}
             updateWhenZooming={false}
+            crossOrigin={true}
             maxZoom={19}
           />
           {mapStyle === 'satellite' && (
@@ -450,9 +451,10 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
               url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png"
               subdomains="abcd"
               opacity={0.85}
-              keepBuffer={8}
+              keepBuffer={12}
               updateWhenIdle={false}
               updateWhenZooming={false}
+              crossOrigin={true}
             />
           )}
           <MapInteraction
@@ -494,17 +496,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           </button>
         </div>
 
-        {/* Bouton vue satellite — minuscule, coin bas-gauche */}
-        <button
-          onClick={() => setMapStyle(s => s === 'street' ? 'satellite' : 'street')}
-          className={`absolute text-[10px] font-bold px-2 py-1 rounded-lg shadow-md active:scale-95 transition-all select-none ${mapStyle === 'satellite' ? 'bg-blue-700 text-white' : 'bg-white/90 text-gray-700 hover:bg-white'}`}
-          style={{ zIndex: 1001, bottom: '6.5rem', left: '1rem' }}
-          title={mapStyle === 'satellite' ? 'Vue plan' : 'Vue satellite'}
-        >
-          {mapStyle === 'satellite' ? '🗺 Plan' : '🛰 Sat'}
-        </button>
-
-        {/* Légende */}
+        {/* Légende + toggle satellite */}
         <div
           className="absolute bottom-6 left-4 bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg p-3 text-xs text-gray-700 space-y-2 max-w-44"
           style={{ zIndex: 1000 }}
@@ -513,7 +505,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           {allCommercials.map(c => (
             <div key={c.id} className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: c.color }} />
-              <span className="truncate">{c.name}</span>
+              <span className="truncate">{firstName(c.name)}</span>
             </div>
           ))}
           <div className="border-t border-gray-100 pt-2 space-y-1">
@@ -526,12 +518,12 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
               <span className="text-gray-500">Chantier</span>
             </div>
           </div>
-          <p className="text-[10px] text-gray-400 border-t border-gray-100 pt-2 hidden sm:block">
-            Cliquer sur la carte pour ajouter
-          </p>
-          <p className="text-[10px] text-gray-400 border-t border-gray-100 pt-2 sm:hidden">
-            Bouton + pour ajouter un point
-          </p>
+          <button
+            onClick={() => setMapStyle(s => s === 'street' ? 'satellite' : 'street')}
+            className={`w-full text-[10px] font-semibold py-1.5 rounded-xl border transition-all active:scale-95 select-none ${mapStyle === 'satellite' ? 'bg-blue-700 text-white border-blue-700' : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'}`}
+          >
+            {mapStyle === 'satellite' ? '🗺️ Vue plan' : '🛰️ Satellite'}
+          </button>
         </div>
 
         {/* Panneau détail site — w-full sur mobile, 384px sur desktop */}
