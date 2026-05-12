@@ -54,11 +54,15 @@ self.addEventListener('push', e => {
 self.addEventListener('notificationclick', e => {
   e.notification.close()
   const target = e.notification.data?.url ?? '/'
+  const full = target.startsWith('http') ? target : self.location.origin + target
   e.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(wins => {
       const existing = wins.find(w => w.url.includes(self.location.origin))
-      if (existing) return existing.focus()
-      return clients.openWindow(target)
+      if (existing) {
+        existing.focus()
+        return existing.navigate(full)
+      }
+      return clients.openWindow(full)
     })
   )
 })

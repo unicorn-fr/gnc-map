@@ -33,6 +33,7 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
     email: site.email || '',
   })
   const [saving, setSaving] = useState(false)
+  const [uploading, setUploading] = useState(false)
   const [lightbox, setLightbox] = useState(null)
 
   const isOwner = currentCommercialId === site.commercial_id
@@ -55,22 +56,28 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
 
   const handleAddPhoto = async (e) => {
     const files = Array.from(e.target.files)
-    for (const file of files) {
-      try {
-        const compressed = await compressImage(file)
-        const path = `${currentCommercialId}/${site.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`
-        const { error } = await supabase.storage.from('site-photos').upload(path, compressed)
-        if (!error) {
-          const { data: { publicUrl } } = supabase.storage.from('site-photos').getPublicUrl(path)
-          const { data: photo } = await supabase.from('photos')
-            .insert({ site_id: site.id, commercial_id: currentCommercialId, url: publicUrl })
-            .select().single()
-          if (photo) setPhotos(prev => [photo, ...prev])
-        }
-      } catch { /* ignore */ }
+    if (!files.length) return
+    setUploading(true)
+    try {
+      for (const file of files) {
+        try {
+          const compressed = await compressImage(file)
+          const path = `${currentCommercialId}/${site.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`
+          const { error } = await supabase.storage.from('site-photos').upload(path, compressed)
+          if (!error) {
+            const { data: { publicUrl } } = supabase.storage.from('site-photos').getPublicUrl(path)
+            const { data: photo } = await supabase.from('photos')
+              .insert({ site_id: site.id, commercial_id: currentCommercialId, url: publicUrl })
+              .select().single()
+            if (photo) setPhotos(prev => [photo, ...prev])
+          }
+        } catch { /* ignore */ }
+      }
+      toast.success('Photo ajoutée')
+      sendPushToAll(`${firstName(commercial?.name ?? '')} — photo sur ${site.name}`, 'Nouvelle photo ajoutée', `/?site=${site.id}`, currentCommercialId)
+    } finally {
+      setUploading(false)
     }
-    toast.success('Photo ajoutée')
-    sendPushToAll(`${firstName(commercial?.name ?? '')} — photo sur ${site.name}`, 'Nouvelle photo ajoutée', '/', currentCommercialId)
   }
 
   const handleDeletePhoto = async (photo) => {
@@ -88,7 +95,7 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
       setReports(prev => [data, ...prev])
       setNewReport('')
       toast.success('Rapport ajouté')
-      sendPushToAll(`${firstName(commercial?.name ?? '')} — rapport sur ${site.name}`, newReport.trim().slice(0, 80), '/', currentCommercialId)
+      sendPushToAll(`${firstName(commercial?.name ?? '')} — rapport sur ${site.name}`, newReport.trim().slice(0, 80), `/?site=${site.id}`, currentCommercialId)
     }
   }
 
@@ -114,7 +121,7 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
     if (error) return toast.error('Erreur lors de la mise à jour')
     toast.success('Site mis à jour')
     setEditMode(false)
-    sendPushToAll(`${firstName(commercial?.name ?? '')} a modifié ${editForm.name.trim()}`, `Statut : ${STATUS[editForm.status]?.label ?? editForm.status}`, '/', currentCommercialId)
+    sendPushToAll(`${firstName(commercial?.name ?? '')} a modifié ${editForm.name.trim()}`, `Statut : ${STATUS[editForm.status]?.label ?? editForm.status}`, `/?site=${site.id}`, currentCommercialId)
     onUpdated()
   }
 
@@ -274,10 +281,10 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
               <h3 className="font-semibold text-sm text-gray-800">
                 Photos <span className="text-gray-400 font-normal">({photos.length})</span>
               </h3>
-              <label className="flex items-center gap-1.5 text-xs text-blue-600 font-semibold cursor-pointer hover:text-blue-800">
-                <Camera size={14} />
-                Ajouter
-                <input type="file" accept="image/*" capture="environment" multiple onChange={handleAddPhoto} className="hidden" />
+              <label className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer ${uploading ? 'text-gray-400 pointer-events-none' : 'text-blue-600 hover:text-blue-800'}`}>
+                {uploading ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />}
+                {uploading ? 'Envoi...' : 'Ajouter'}
+                <input type="file" accept="image/*" capture="environment" multiple onChange={handleAddPhoto} className="hidden" disabled={uploading} />
               </label>
             </div>
             {photos.length === 0 ? (

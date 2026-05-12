@@ -82,8 +82,16 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
   const [visibleTypes, setVisibleTypes] = useState(new Set(['siege', 'chantier']))
   const [flyTo, setFlyTo] = useState(null)
   const watchIdRef = useRef(null)
+  const pendingSiteIdRef = useRef(null)
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const siteId = params.get('site')
+    if (siteId) {
+      pendingSiteIdRef.current = siteId
+      window.history.replaceState({}, '', '/')
+    }
+
     loadAll()
     const cleanup = setupRealtime()
     const timer = setTimeout(startTracking, 1200)
@@ -161,6 +169,16 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
       .subscribe()
     return () => supabase.removeChannel(ch)
   }, [])
+
+  useEffect(() => {
+    if (!pendingSiteIdRef.current || sites.length === 0) return
+    const target = sites.find(s => s.id === pendingSiteIdRef.current)
+    if (target) {
+      pendingSiteIdRef.current = null
+      setSelectedSite(target)
+      if (target.lat && target.lng) setFlyTo({ lat: target.lat, lng: target.lng })
+    }
+  }, [sites])
 
   const colorMap = useMemo(() => {
     const m = {}

@@ -108,7 +108,7 @@ export default function AddSiteModal({ position, commercial, onSave, onClose }) 
       sendPushToAll(
         `${firstName(commercial.name)} a ajouté un site`,
         `${form.name.trim()}${form.company.trim() ? ` — ${form.company.trim()}` : ''}`,
-        '/',
+        `/?site=${site.id}`,
         commercial.id
       )
       onSave(site)
