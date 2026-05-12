@@ -413,10 +413,6 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         />
       )}
 
-      {/* Bannière installation PWA (positionnée en bas, au-dessus des boutons flottants) */}
-      <div className="absolute bottom-28 left-1/2 -translate-x-1/2 w-full max-w-xs px-4" style={{ zIndex: 1100 }}>
-        <InstallBanner installPrompt={installPrompt} onInstalled={onInstalled} />
-      </div>
     </div>
   )
 }
