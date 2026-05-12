@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo, memo } from 'react'
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet'
 import L from 'leaflet'
-import { Menu, Plus, Navigation, X } from 'lucide-react'
+import { Menu, Plus, Navigation, X, Layers } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { requestAndSubscribe } from '../lib/push'
 import { firstName } from '../lib/utils'
@@ -81,6 +81,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
   const [visibleCommercials, setVisibleCommercials] = useState(new Set())
   const [visibleTypes, setVisibleTypes] = useState(new Set(['siege', 'chantier']))
   const [flyTo, setFlyTo] = useState(null)
+  const [mapStyle, setMapStyle] = useState('street')
   const watchIdRef = useRef(null)
   const pendingSiteIdRef = useRef(null)
   const selectedSiteRef = useRef(null)
@@ -432,13 +433,30 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           preferCanvas={true}
         >
           <TileLayer
-            url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>'
-            subdomains="abcd"
-            keepBuffer={6}
+            key={`base-${mapStyle}`}
+            url={mapStyle === 'satellite'
+              ? "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+              : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"}
+            attribution={mapStyle === 'satellite'
+              ? 'Tiles &copy; Esri &mdash; Source: Esri, DigitalGlobe, GeoEye, Earthstar Geographics'
+              : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}
+            subdomains={mapStyle === 'street' ? 'abc' : undefined}
+            keepBuffer={8}
+            updateWhenIdle={false}
             updateWhenZooming={false}
             maxZoom={19}
           />
+          {mapStyle === 'satellite' && (
+            <TileLayer
+              key="labels"
+              url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png"
+              subdomains="abcd"
+              opacity={0.9}
+              keepBuffer={8}
+              updateWhenIdle={false}
+              updateWhenZooming={false}
+            />
+          )}
           <MapInteraction
             onMapClick={handleMapClick}
             flyTo={flyTo}
@@ -462,6 +480,14 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           className="absolute bottom-6 right-4 flex flex-col gap-3"
           style={{ zIndex: 1000 }}
         >
+          <button
+            onClick={() => setMapStyle(s => s === 'street' ? 'satellite' : 'street')}
+            className={`w-12 h-12 rounded-full shadow-lg flex items-center justify-center active:scale-95 transition-all ${mapStyle === 'satellite' ? 'bg-blue-700 text-white' : 'bg-white text-blue-800 hover:bg-blue-50'}`}
+            aria-label="Changer la vue de la carte"
+            title={mapStyle === 'satellite' ? 'Vue plan' : 'Vue satellite'}
+          >
+            <Layers size={20} />
+          </button>
           <button
             onClick={handleLocateMe}
             className="w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center text-blue-800 hover:bg-blue-50 active:scale-95 transition-all"

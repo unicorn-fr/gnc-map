@@ -1,5 +1,5 @@
-const CACHE = 'gnc-map-v7'
-const TILE_CACHE = 'gnc-tiles-v2'
+const CACHE = 'gnc-map-v8'
+const TILE_CACHE = 'gnc-tiles-v3'
 
 self.addEventListener('install', e => {
   self.skipWaiting()
@@ -31,7 +31,7 @@ self.addEventListener('fetch', e => {
   // Tuiles OpenStreetMap : cache-first pour une navigation fluide.
   // Les tuiles ne changent quasiment jamais — les servir depuis le cache
   // élimine la latence réseau lors du défilement et du zoom.
-  if (url.hostname.includes('basemaps.cartocdn.com')) {
+  if (url.hostname.includes('tile.openstreetmap.org') || url.hostname.includes('arcgisonline.com') || url.hostname.includes('basemaps.cartocdn.com')) {
     e.respondWith(
       caches.open(TILE_CACHE).then(async cache => {
         const cached = await cache.match(e.request)
