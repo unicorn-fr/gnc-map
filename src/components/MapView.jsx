@@ -1,6 +1,5 @@
 import { useEffect, useState, useCallback, useRef, useMemo, memo } from 'react'
 import Map, { Marker } from 'react-map-gl/maplibre'
-import 'maplibre-gl/dist/maplibre-gl.css'
 import { Menu, Plus, Navigation, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { requestAndSubscribe } from '../lib/push'
