@@ -98,7 +98,7 @@ export default function AddSiteModal({ position, commercial, onSave, onClose }) 
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+    <div className="fixed inset-0 flex items-end sm:items-center justify-center" style={{ zIndex: 2000 }}>
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
       <div className="relative bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl max-h-[92vh] flex flex-col shadow-2xl">
@@ -114,10 +114,15 @@ export default function AddSiteModal({ position, commercial, onSave, onClose }) 
         </div>
 
         <form onSubmit={handleSubmit} className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
-          {position && (
+          {position ? (
             <div className="text-[11px] text-gray-400 bg-gray-50 rounded-xl px-3 py-2 font-mono flex items-center gap-2">
               <div className="w-2 h-2 rounded-full" style={{ background: commercial.color }} />
               {commercial.name} — 📍 {position.lat.toFixed(5)}, {position.lng.toFixed(5)}
+            </div>
+          ) : (
+            <div className="text-[11px] text-gray-400 bg-gray-50 rounded-xl px-3 py-2 flex items-center gap-2">
+              <Loader2 size={12} className="animate-spin text-blue-400" />
+              Localisation GPS en cours…
             </div>
           )}
 
