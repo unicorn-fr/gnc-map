@@ -19,7 +19,7 @@ const fmt = (iso) =>
     hour: '2-digit', minute: '2-digit',
   })
 
-export default function SiteDetailPanel({ site, commercial, currentCommercialId, color, onClose, onUpdated }) {
+export default function SiteDetailPanel({ site, commercial, currentCommercial, currentCommercialId, color, onClose, onUpdated }) {
   const [photos, setPhotos] = useState([])
   const [reports, setReports] = useState([])
   const [newReport, setNewReport] = useState('')
@@ -94,7 +94,7 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
         } catch { /* ignore */ }
       }
       toast.success('Photo ajoutée')
-      sendPushToAll(`${firstName(commercial?.name ?? '')} — photo sur ${site.name}`, 'Nouvelle photo ajoutée', `/?site=${site.id}`, currentCommercialId)
+      sendPushToAll(`${firstName(currentCommercial?.name ?? '')} — photo sur ${site.name}`, 'Nouvelle photo ajoutée', `/?site=${site.id}`, currentCommercialId)
     } finally {
       setUploading(false)
     }
@@ -115,7 +115,7 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
       setReports(prev => [data, ...prev])
       setNewReport('')
       toast.success('Rapport ajouté')
-      sendPushToAll(`${firstName(commercial?.name ?? '')} — rapport sur ${site.name}`, newReport.trim().slice(0, 80), `/?site=${site.id}`, currentCommercialId)
+      sendPushToAll(`${firstName(currentCommercial?.name ?? '')} — rapport sur ${site.name}`, newReport.trim().slice(0, 80), `/?site=${site.id}`, currentCommercialId)
     }
   }
 
@@ -141,7 +141,7 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
     if (error) return toast.error('Erreur lors de la mise à jour')
     toast.success('Site mis à jour')
     setEditMode(false)
-    sendPushToAll(`${firstName(commercial?.name ?? '')} a modifié ${editForm.name.trim()}`, `Statut : ${STATUS[editForm.status]?.label ?? editForm.status}`, `/?site=${site.id}`, currentCommercialId)
+    sendPushToAll(`${firstName(currentCommercial?.name ?? '')} a modifié ${editForm.name.trim()}`, `Statut : ${STATUS[editForm.status]?.label ?? editForm.status}`, `/?site=${site.id}`, currentCommercialId)
     onUpdated()
   }
 

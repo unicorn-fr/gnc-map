@@ -85,6 +85,8 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
   const pendingSiteIdRef = useRef(null)
   const selectedSiteRef = useRef(null)
   selectedSiteRef.current = selectedSite
+  const sitesRef = useRef([])
+  sitesRef.current = sites
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -99,16 +101,36 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
     const timer = setTimeout(startTracking, 1200)
     requestAndSubscribe(commercial.id)
 
-    // Rafraîchir les données quand l'app revient au premier plan (h24)
+    // Rafraîchir les données quand l'app revient au premier plan
     const handleVisible = () => {
       if (document.visibilityState === 'visible') loadAll()
     }
     document.addEventListener('visibilitychange', handleVisible)
 
+    // Ouvrir le panneau du site quand une notification est cliquée avec l'app déjà ouverte.
+    // Le SW envoie { type: 'OPEN_URL', url } au lieu de naviguer, car navigate()
+    // ne déclenche pas les useEffect React déjà montés.
+    const handleSWMessage = (event) => {
+      if (event.data?.type !== 'OPEN_URL') return
+      try {
+        const siteId = new URLSearchParams(new URL(event.data.url).search).get('site')
+        if (!siteId) return
+        const target = sitesRef.current.find(s => s.id === siteId)
+        if (target) {
+          setSelectedSite(target)
+          if (target.lat && target.lng) setFlyTo({ lat: target.lat, lng: target.lng })
+        } else {
+          pendingSiteIdRef.current = siteId
+        }
+      } catch {}
+    }
+    navigator.serviceWorker?.addEventListener('message', handleSWMessage)
+
     return () => {
       cleanup()
       clearTimeout(timer)
       document.removeEventListener('visibilitychange', handleVisible)
+      navigator.serviceWorker?.removeEventListener('message', handleSWMessage)
       if (watchIdRef.current !== null) {
         navigator.geolocation.clearWatch(watchIdRef.current)
       }
@@ -451,6 +473,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
             <SiteDetailPanel
               site={selectedSite}
               commercial={allCommercials.find(c => c.id === selectedSite.commercial_id)}
+              currentCommercial={commercial}
               currentCommercialId={commercial.id}
               color={getColor(selectedSite.commercial_id)}
               onClose={() => setSelectedSite(null)}

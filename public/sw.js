@@ -62,14 +62,17 @@ self.addEventListener('push', e => {
 
 self.addEventListener('notificationclick', e => {
   e.notification.close()
-  const target = e.notification.data?.url ?? '/'
-  const full = target.startsWith('http') ? target : self.location.origin + target
+  const url = e.notification.data?.url ?? '/'
+  const full = url.startsWith('http') ? url : self.location.origin + url
   e.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(wins => {
       const existing = wins.find(w => w.url.includes(self.location.origin))
       if (existing) {
         existing.focus()
-        return existing.navigate(full)
+        // Envoyer un message plutôt que navigate() : React ne relit pas les
+        // paramètres URL sur une navigation dans un onglet déjà monté.
+        existing.postMessage({ type: 'OPEN_URL', url: full })
+        return
       }
       return clients.openWindow(full)
     })
