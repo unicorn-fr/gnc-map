@@ -431,9 +431,14 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           zoomControl={false}
           tap={false}
           preferCanvas={true}
-          zoomSnap={0.5}
-          zoomDelta={0.5}
-          wheelPxPerZoomLevel={80}
+          zoomSnap={0}
+          zoomDelta={1}
+          wheelPxPerZoomLevel={60}
+          inertia={true}
+          inertiaDeceleration={1600}
+          inertiaMaxSpeed={2000}
+          easeLinearity={0.15}
+          bounceAtZoomLimits={false}
         >
           <TileLayer
             url={mapStyle === 'satellite'

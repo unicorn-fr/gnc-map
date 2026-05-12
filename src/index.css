@@ -17,13 +17,25 @@ html, body, #root {
   width: 100%;
   font-family: inherit;
   background: #e8e0d5;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 /* Tiles fade in smoothly instead of popping in as gray squares */
 .leaflet-tile {
-  transition: opacity 0.12s ease-in;
+  transition: opacity 0.1s ease-in;
 }
 .leaflet-tile-container {
+  will-change: transform;
+}
+
+/* Zoom animation aussi fluide que possible */
+.leaflet-zoom-animated {
+  will-change: transform;
+}
+
+.leaflet-proxy.leaflet-zoom-animated {
   will-change: transform;
 }
 
