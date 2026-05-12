@@ -40,7 +40,7 @@ export default function Sidebar({
 
   // Activité récente des AUTRES commerciaux (les 10 dernières)
   const recentByOthers = [...sites]
-    .filter(s => s.commercial_id !== currentCommercialId)
+    .filter(s => s.commercial_id !== currentCommercialId && !s.import_log_id)
     .sort((a, b) => new Date(b.updated_at ?? b.created_at) - new Date(a.updated_at ?? a.created_at))
     .slice(0, 10)
 
