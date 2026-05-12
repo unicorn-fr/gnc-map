@@ -1,5 +1,5 @@
-const CACHE = 'gnc-map-v11'
-const TILE_CACHE = 'gnc-tiles-v5'
+const CACHE = 'gnc-map-v12'
+const TILE_CACHE = 'gnc-tiles-v6'
 const STYLE_CACHE = 'gnc-styles-v1'
 
 self.addEventListener('install', e => {
@@ -16,19 +16,37 @@ self.addEventListener('activate', e => {
   )
 })
 
-// Précharge les 4 tuiles enfants (zoom+1) d'une tuile OSM en arrière-plan.
-// Quand l'utilisateur zoome, les tuiles sont déjà dans le cache → zéro latence.
+// Précharge les 8 tuiles voisines (même zoom, toutes directions) d'une tuile vectorielle.
+// Quand l'utilisateur se déplace, les tuiles adjacentes sont déjà en cache → zéro blanc.
+function prefetchVectorNeighbors(cache, url) {
+  const m = url.pathname.match(/\/(\d+)\/(\d+)\/(\d+)\.pbf$/)
+  if (!m) return
+  const z = +m[1], x = +m[2], y = +m[3]
+  if (z < 5 || z > 15) return
+  const basePath = url.pathname.replace(/\/\d+\/\d+\/\d+\.pbf$/, '')
+  const neighbors = [
+    [z, x-1, y-1], [z, x, y-1], [z, x+1, y-1],
+    [z, x-1, y  ],               [z, x+1, y  ],
+    [z, x-1, y+1], [z, x, y+1], [z, x+1, y+1],
+  ]
+  neighbors.forEach(([nz, nx, ny]) => {
+    const nUrl = `${url.origin}${basePath}/${nz}/${nx}/${ny}.pbf`
+    cache.match(nUrl).then(hit => {
+      if (!hit) fetch(nUrl).then(r => { if (r.ok) try { cache.put(nUrl, r) } catch {} }).catch(() => {})
+    })
+  })
+}
+
+// Précharge les 4 tuiles enfants (zoom+1) d'une tuile OSM raster.
 function prefetchOsmChildren(cache, url) {
   const m = url.pathname.match(/\/(\d+)\/(\d+)\/(\d+)\.png$/)
   if (!m) return
   const z = +m[1], x = +m[2], y = +m[3]
-  if (z < 5 || z > 15) return // hors plage utile — évite d'exploser le cache
+  if (z < 5 || z > 15) return
   const subs = ['a', 'b', 'c']
   const children = [
-    [z+1, 2*x,   2*y  ],
-    [z+1, 2*x+1, 2*y  ],
-    [z+1, 2*x,   2*y+1],
-    [z+1, 2*x+1, 2*y+1],
+    [z+1, 2*x,   2*y  ], [z+1, 2*x+1, 2*y  ],
+    [z+1, 2*x,   2*y+1], [z+1, 2*x+1, 2*y+1],
   ]
   children.forEach(([cz, cx, cy], i) => {
     const childUrl = `https://${subs[i % 3]}.tile.openstreetmap.org/${cz}/${cx}/${cy}.png`
@@ -79,11 +97,11 @@ self.addEventListener('fetch', e => {
         if (cached) return cached
         const res = await fetch(e.request)
         if (res.ok) {
-          try {
-            cache.put(e.request, res.clone())
-          } catch {}
+          try { cache.put(e.request, res.clone()) } catch {}
           if (url.hostname.includes('tile.openstreetmap.org')) {
             prefetchOsmChildren(cache, url)
+          } else if (url.hostname.includes('openfreemap.org') && url.pathname.endsWith('.pbf')) {
+            prefetchVectorNeighbors(cache, url)
           }
         }
         return res

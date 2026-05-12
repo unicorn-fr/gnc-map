@@ -14,6 +14,14 @@ import toast from 'react-hot-toast'
 
 const STREET_STYLE = 'https://tiles.openfreemap.org/styles/bright'
 
+function getSavedView() {
+  try {
+    const v = JSON.parse(localStorage.getItem('gnc_map_view') || 'null')
+    if (v?.longitude && v?.latitude) return v
+  } catch {}
+  return null
+}
+
 const SATELLITE_STYLE = {
   version: 8,
   sources: {
@@ -78,7 +86,8 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
 
     loadAll()
     const cleanup = setupRealtime()
-    const timer = setTimeout(startTracking, 1200)
+    // Démarrer le GPS immédiatement — pas de délai, la carte ouvre au bon endroit
+    const timer = setTimeout(startTracking, 100)
     requestAndSubscribe(commercial.id)
 
     const handleVisible = () => {
@@ -119,11 +128,19 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
 
   const startTracking = () => {
     if (!navigator.geolocation || watchIdRef.current !== null) return
+    const hasSavedView = !!getSavedView()
     let firstFix = true
     watchIdRef.current = navigator.geolocation.watchPosition(
       ({ coords: { latitude: lat, longitude: lng } }) => {
         setUserPosition([lat, lng])
-        if (firstFix) { setFlyTo({ lat, lng }); firstFix = false }
+        // Sauvegarder la position pour la prochaine ouverture
+        localStorage.setItem('gnc_map_view', JSON.stringify({ latitude: lat, longitude: lng, zoom: 14 }))
+        // Voler vers le GPS seulement si pas de position sauvegardée (premier usage)
+        // ou si c'est le premier fix de la session courante sans position sauvegardée
+        if (firstFix) {
+          firstFix = false
+          if (!hasSavedView) setFlyTo({ lat, lng })
+        }
       },
       () => {},
       { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
@@ -365,7 +382,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         {/* Carte MapLibre GL — rendu WebGL, fluide comme Google Maps */}
         <ReactMap
           ref={mapRef}
-          initialViewState={{ longitude: 2.3522, latitude: 48.8566, zoom: 6 }}
+          initialViewState={getSavedView() ?? { longitude: 2.3522, latitude: 48.8566, zoom: 6 }}
           style={{ width: '100%', height: '100%' }}
           mapStyle={mapStyle === 'satellite' ? SATELLITE_STYLE : STREET_STYLE}
           onClick={handleMapClick}
