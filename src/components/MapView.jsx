@@ -83,6 +83,8 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
   const [flyTo, setFlyTo] = useState(null)
   const watchIdRef = useRef(null)
   const pendingSiteIdRef = useRef(null)
+  const selectedSiteRef = useRef(null)
+  selectedSiteRef.current = selectedSite
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -178,6 +180,17 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
       setSelectedSite(target)
       if (target.lat && target.lng) setFlyTo({ lat: target.lat, lng: target.lng })
     }
+  }, [sites])
+
+  // Synchronise le panneau ouvert avec les mises à jour temps réel.
+  // Si quelqu'un d'autre modifie le site affiché, le panneau se met à jour automatiquement.
+  // Si le site est supprimé, le panneau se ferme.
+  useEffect(() => {
+    const cur = selectedSiteRef.current
+    if (!cur) return
+    const updated = sites.find(s => s.id === cur.id)
+    if (!updated) setSelectedSite(null)
+    else if (updated !== cur) setSelectedSite(updated)
   }, [sites])
 
   const colorMap = useMemo(() => {
@@ -441,7 +454,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
               currentCommercialId={commercial.id}
               color={getColor(selectedSite.commercial_id)}
               onClose={() => setSelectedSite(null)}
-              onUpdated={() => { loadAll(); setSelectedSite(null) }}
+              onUpdated={() => {}}
             />
           </div>
         )}
@@ -452,7 +465,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         <AddSiteModal
           position={addPosition}
           commercial={commercial}
-          onSave={() => { loadAll(); setShowAddModal(false) }}
+          onSave={() => setShowAddModal(false)}
           onClose={() => setShowAddModal(false)}
         />
       )}

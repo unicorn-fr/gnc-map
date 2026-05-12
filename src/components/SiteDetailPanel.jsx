@@ -44,6 +44,26 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
     loadReports()
   }, [site.id])
 
+  // Temps réel : photos et rapports mis à jour en direct pour tous les utilisateurs
+  useEffect(() => {
+    const ch = supabase.channel(`site-detail-${site.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'photos', filter: `site_id=eq.${site.id}` }, ({ new: photo }) => {
+        setPhotos(prev => prev.some(p => p.id === photo.id) ? prev : [photo, ...prev])
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'photos', filter: `site_id=eq.${site.id}` }, ({ old }) => {
+        setPhotos(prev => prev.filter(p => p.id !== old.id))
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reports', filter: `site_id=eq.${site.id}` }, ({ new: report }) => {
+        supabase.from('reports').select('*, commercials(id, name)').eq('id', report.id).single()
+          .then(({ data }) => { if (data) setReports(prev => prev.some(r => r.id === data.id) ? prev : [data, ...prev]) })
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'reports', filter: `site_id=eq.${site.id}` }, ({ old }) => {
+        setReports(prev => prev.filter(r => r.id !== old.id))
+      })
+      .subscribe()
+    return () => supabase.removeChannel(ch)
+  }, [site.id])
+
   const loadPhotos = async () => {
     const { data } = await supabase.from('photos').select('*').eq('site_id', site.id).order('created_at', { ascending: false })
     if (data) setPhotos(data)
