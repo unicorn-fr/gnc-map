@@ -12,7 +12,7 @@ import ReportsPage from './ReportsPage'
 import InstallBanner from './InstallBanner'
 import toast from 'react-hot-toast'
 
-const STREET_STYLE = 'https://tiles.openfreemap.org/styles/liberty'
+const STREET_STYLE = 'https://tiles.openfreemap.org/styles/bright'
 
 const SATELLITE_STYLE = {
   version: 8,
@@ -372,6 +372,9 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           attributionControl={false}
           pitchWithRotate={false}
           dragRotate={false}
+          fadeDuration={0}
+          localIdeographFontFamily="sans-serif"
+          renderWorldCopies={false}
         >
           {userPosition && (
             <Marker longitude={userPosition[1]} latitude={userPosition[0]} anchor="center">

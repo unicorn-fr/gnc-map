@@ -1,5 +1,6 @@
-const CACHE = 'gnc-map-v10'
+const CACHE = 'gnc-map-v11'
 const TILE_CACHE = 'gnc-tiles-v5'
+const STYLE_CACHE = 'gnc-styles-v1'
 
 self.addEventListener('install', e => {
   self.skipWaiting()
@@ -9,7 +10,7 @@ self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys()
       .then(keys => Promise.all(
-        keys.filter(k => k !== CACHE && k !== TILE_CACHE).map(k => caches.delete(k))
+        keys.filter(k => k !== CACHE && k !== TILE_CACHE && k !== STYLE_CACHE).map(k => caches.delete(k))
       ))
       .then(() => clients.claim())
   )
@@ -45,6 +46,23 @@ self.addEventListener('fetch', e => {
     e.respondWith(
       fetch(e.request, { cache: 'no-store' })
         .catch(() => caches.match('/index.html'))
+    )
+    return
+  }
+
+  // Style JSON MapLibre (liberty/bright) — stale-while-revalidate :
+  // sert depuis le cache immédiatement, met à jour en arrière-plan.
+  // Le style fait ~500 Ko ; sans cache, il bloque le premier rendu.
+  if (url.hostname.includes('openfreemap.org') && url.pathname.endsWith('.json')) {
+    e.respondWith(
+      caches.open(STYLE_CACHE).then(async cache => {
+        const cached = await cache.match(e.request)
+        const fetchPromise = fetch(e.request).then(res => {
+          if (res.ok) try { cache.put(e.request, res.clone()) } catch {}
+          return res
+        }).catch(() => cached)
+        return cached || fetchPromise
+      })
     )
     return
   }
