@@ -44,22 +44,20 @@ export default function SiteDetailPanel({ site, commercial, currentCommercial, c
     loadReports()
   }, [site.id])
 
-  // Temps réel : photos et rapports mis à jour en direct pour tous les utilisateurs.
-  // On appelle loadPhotos()/loadReports() plutôt que d'insérer manuellement dans le state :
-  // cela garantit la jointure correcte (auteur du rapport, etc.) sans race condition.
+  // Temps réel : pas de filtre serveur (nécessite RLS) → filtre côté client.
   useEffect(() => {
     const ch = supabase.channel(`site-detail-${site.id}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'photos', filter: `site_id=eq.${site.id}` }, () => {
-        loadPhotos()
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'photos' }, ({ new: photo }) => {
+        if (photo.site_id === site.id) loadPhotos()
       })
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'photos', filter: `site_id=eq.${site.id}` }, ({ old }) => {
-        setPhotos(prev => prev.filter(p => p.id !== old.id))
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'photos' }, ({ old }) => {
+        if (old.site_id === site.id) setPhotos(prev => prev.filter(p => p.id !== old.id))
       })
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reports', filter: `site_id=eq.${site.id}` }, () => {
-        loadReports()
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reports' }, ({ new: report }) => {
+        if (report.site_id === site.id) loadReports()
       })
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'reports', filter: `site_id=eq.${site.id}` }, ({ old }) => {
-        setReports(prev => prev.filter(r => r.id !== old.id))
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'reports' }, ({ old }) => {
+        if (old.site_id === site.id) setReports(prev => prev.filter(r => r.id !== old.id))
       })
       .subscribe()
     return () => supabase.removeChannel(ch)
