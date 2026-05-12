@@ -39,10 +39,10 @@ export default function Sidebar({
   }
 
   // Activité récente des AUTRES commerciaux (les 10 dernières)
-  const recentByOthers = [...sites]
-    .filter(s => s.commercial_id !== currentCommercialId && !s.import_log_id)
+  const recentActivity = [...sites]
+    .filter(s => !s.import_log_id)
     .sort((a, b) => new Date(b.updated_at ?? b.created_at) - new Date(a.updated_at ?? a.created_at))
-    .slice(0, 10)
+    .slice(0, 15)
 
   return (
     <div className="w-80 bg-white h-full shadow-2xl flex flex-col overflow-hidden">
@@ -83,15 +83,16 @@ export default function Sidebar({
         </div>
 
         {/* Activité récente des autres */}
-        {recentByOthers.length > 0 && (
+        {recentActivity.length > 0 && (
           <div className="p-4 border-b">
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">
-              Activité récente des collègues
+              Activité récente
             </p>
-            {recentByOthers.map(site => {
+            {recentActivity.map(site => {
               const comm = commercials.find(c => c.id === site.commercial_id)
               const color = getColor(site.commercial_id)
               const ts = site.updated_at ?? site.created_at
+              const isMe = site.commercial_id === currentCommercialId
               return (
                 <button
                   key={site.id}
@@ -109,7 +110,7 @@ export default function Sidebar({
                       {site.name}
                     </p>
                     <p className="text-xs text-gray-400 truncate">
-                      {firstName(comm?.name ?? '')}
+                      {isMe ? 'Moi' : firstName(comm?.name ?? '')}
                       {site.city ? ` · ${site.city}` : ''}
                       <span className="ml-1 text-gray-300">· {relTime(ts)}</span>
                     </p>

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo, memo } from 'react'
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import { Menu, Plus, Navigation, X } from 'lucide-react'
@@ -36,6 +36,17 @@ const createUserIcon = (color) =>
     iconSize: [18, 18],
     iconAnchor: [9, 9],
   })
+
+// Composant marqueur mémoïsé : ne re-render que si le site ou la couleur change.
+// Sans memo, createSiteIcon recrée un L.divIcon à chaque render global,
+// ce qui force Leaflet à re-peindre TOUS les marqueurs dans le DOM.
+const SiteMarker = memo(function SiteMarker({ site, color, onSelect }) {
+  const icon = useMemo(() => createSiteIcon(color, site.type), [color, site.type])
+  const handlers = useMemo(() => ({
+    click: (e) => { L.DomEvent.stopPropagation(e); onSelect(site) },
+  }), [site, onSelect])
+  return <Marker position={[site.lat, site.lng]} icon={icon} eventHandlers={handlers} />
+})
 
 function MapInteraction({ onMapClick, flyTo, onFlyToDone }) {
   const map = useMap()
@@ -151,10 +162,16 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
     return () => supabase.removeChannel(ch)
   }, [])
 
-  const getColor = (commercialId) => {
-    const c = allCommercials.find(x => x.id === commercialId)
-    return c?.color ?? '#6B7280'
-  }
+  const colorMap = useMemo(() => {
+    const m = {}
+    allCommercials.forEach(c => { m[c.id] = c.color })
+    return m
+  }, [allCommercials])
+
+  const getColor = useCallback((id) => colorMap[id] ?? '#6B7280', [colorMap])
+
+  const handleSelectSite = useCallback((site) => setSelectedSite(site), [])
+  const handleFlyToDone = useCallback(() => setFlyTo(null), [])
 
   const handleLocateMe = async () => {
     if (!navigator.geolocation) return toast.error('Géolocalisation non disponible sur cet appareil')
@@ -203,8 +220,9 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
     setShowAddModal(true)
   }
 
-  const filtered = sites.filter(
-    s => s.lat && s.lng && visibleCommercials.has(s.commercial_id) && visibleTypes.has(s.type)
+  const filtered = useMemo(() =>
+    sites.filter(s => s.lat && s.lng && visibleCommercials.has(s.commercial_id) && visibleTypes.has(s.type)),
+    [sites, visibleCommercials, visibleTypes]
   )
 
   if (showImport) {
@@ -330,23 +348,17 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           <MapInteraction
             onMapClick={handleMapClick}
             flyTo={flyTo}
-            onFlyToDone={() => setFlyTo(null)}
+            onFlyToDone={handleFlyToDone}
           />
           {userPosition && (
             <Marker position={userPosition} icon={createUserIcon(commercial.color)} />
           )}
           {filtered.map(site => (
-            <Marker
+            <SiteMarker
               key={site.id}
-              position={[site.lat, site.lng]}
-              icon={createSiteIcon(getColor(site.commercial_id), site.type)}
-              eventHandlers={{
-                click: (e) => {
-                  // Empêche le clic de se propager à la carte (évite d'ouvrir AddSiteModal en même temps)
-                  L.DomEvent.stopPropagation(e)
-                  setSelectedSite(site)
-                },
-              }}
+              site={site}
+              color={getColor(site.commercial_id)}
+              onSelect={handleSelectSite}
             />
           ))}
         </MapContainer>

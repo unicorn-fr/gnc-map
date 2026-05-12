@@ -13,19 +13,29 @@ export async function registerSW() {
   if (!('serviceWorker' in navigator)) return null
   try {
     return await navigator.serviceWorker.register('/sw.js')
-  } catch {
+  } catch (e) {
+    console.error('[push] SW registration failed:', e)
     return null
   }
 }
 
 export async function requestAndSubscribe(commercialId) {
-  if (!('Notification' in window) || !('PushManager' in window)) return
-  if (!VAPID_PUBLIC_KEY) return
+  if (!('Notification' in window) || !('PushManager' in window)) {
+    console.warn('[push] Push API not supported on this browser')
+    return
+  }
+  if (!VAPID_PUBLIC_KEY) {
+    console.error('[push] VITE_VAPID_PUBLIC_KEY is not set in .env — push disabled')
+    return
+  }
 
   const perm = Notification.permission === 'granted'
     ? 'granted'
     : await Notification.requestPermission()
-  if (perm !== 'granted') return
+  if (perm !== 'granted') {
+    console.warn('[push] Notification permission denied')
+    return
+  }
 
   try {
     const reg = await navigator.serviceWorker.ready
@@ -35,17 +45,31 @@ export async function requestAndSubscribe(commercialId) {
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
       })
+      console.info('[push] New push subscription created')
+    } else {
+      console.info('[push] Existing push subscription found')
     }
     const { endpoint, keys } = sub.toJSON()
-    await supabase.from('push_subscriptions').upsert(
+    const { error } = await supabase.from('push_subscriptions').upsert(
       { endpoint, auth: keys.auth, p256dh: keys.p256dh, commercial_id: commercialId },
       { onConflict: 'endpoint' }
     )
-  } catch { /* silencieux si bloqué */ }
+    if (error) console.error('[push] Failed to save subscription to DB:', error)
+    else console.info('[push] Subscription saved to DB ✓')
+  } catch (e) {
+    console.error('[push] Subscribe error:', e)
+  }
 }
 
 export async function sendPushToAll(title, body, url = '/') {
+  if (!VAPID_PUBLIC_KEY) return  // push not configured, skip silently
   try {
-    await supabase.functions.invoke('send-push', { body: { title, body, url } })
-  } catch { /* non bloquant */ }
+    const { error, data } = await supabase.functions.invoke('send-push', {
+      body: { title, body, url },
+    })
+    if (error) console.error('[push] Edge function error:', error)
+    else console.info('[push] Sent:', data)
+  } catch (e) {
+    console.error('[push] sendPushToAll error:', e)
+  }
 }
