@@ -14,7 +14,20 @@ function urlBase64ToUint8Array(b64) {
 export async function registerSW() {
   if (!('serviceWorker' in navigator)) return null
   try {
-    return await navigator.serviceWorker.register('/sw.js')
+    const reg = await navigator.serviceWorker.register('/sw.js')
+
+    // Recharge automatiquement quand un nouveau service worker prend le contrôle.
+    // Combiné à skipWaiting() dans le SW, cela garantit que chaque déploiement
+    // est appliqué immédiatement sans action manuelle de l'utilisateur.
+    let refreshing = false
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!refreshing) {
+        refreshing = true
+        window.location.reload()
+      }
+    })
+
+    return reg
   } catch (e) {
     console.error('[push] SW registration failed:', e)
     return null

@@ -81,8 +81,13 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
   const [visibleCommercials, setVisibleCommercials] = useState(new Set())
   const [visibleTypes, setVisibleTypes] = useState(new Set(['siege', 'chantier']))
   const [flyTo, setFlyTo] = useState(null)
+  const [mapStyle, setMapStyle] = useState('street')
   const watchIdRef = useRef(null)
   const pendingSiteIdRef = useRef(null)
+  const selectedSiteRef = useRef(null)
+  selectedSiteRef.current = selectedSite
+  const sitesRef = useRef([])
+  sitesRef.current = sites
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -97,16 +102,36 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
     const timer = setTimeout(startTracking, 1200)
     requestAndSubscribe(commercial.id)
 
-    // Rafraîchir les données quand l'app revient au premier plan (h24)
+    // Rafraîchir les données quand l'app revient au premier plan
     const handleVisible = () => {
       if (document.visibilityState === 'visible') loadAll()
     }
     document.addEventListener('visibilitychange', handleVisible)
 
+    // Ouvrir le panneau du site quand une notification est cliquée avec l'app déjà ouverte.
+    // Le SW envoie { type: 'OPEN_URL', url } au lieu de naviguer, car navigate()
+    // ne déclenche pas les useEffect React déjà montés.
+    const handleSWMessage = (event) => {
+      if (event.data?.type !== 'OPEN_URL') return
+      try {
+        const siteId = new URLSearchParams(new URL(event.data.url).search).get('site')
+        if (!siteId) return
+        const target = sitesRef.current.find(s => s.id === siteId)
+        if (target) {
+          setSelectedSite(target)
+          if (target.lat && target.lng) setFlyTo({ lat: target.lat, lng: target.lng })
+        } else {
+          pendingSiteIdRef.current = siteId
+        }
+      } catch {}
+    }
+    navigator.serviceWorker?.addEventListener('message', handleSWMessage)
+
     return () => {
       cleanup()
       clearTimeout(timer)
       document.removeEventListener('visibilitychange', handleVisible)
+      navigator.serviceWorker?.removeEventListener('message', handleSWMessage)
       if (watchIdRef.current !== null) {
         navigator.geolocation.clearWatch(watchIdRef.current)
       }
@@ -143,32 +168,64 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         return next
       })
     }
-    if (sitesData) setSites(sitesData.filter(s => !s.deleted))
+    if (sitesData) {
+      const fresh = sitesData.filter(s => !s.deleted)
+      // Préserver les références d'objets pour les sites inchangés :
+      // React.memo sur SiteMarker évite ainsi de re-peindre toute la carte
+      // à chaque polling de 15s si aucune donnée n'a changé.
+      setSites(prev => {
+        const prevMap = new Map(prev.map(s => [s.id, s]))
+        return fresh.map(s => {
+          const p = prevMap.get(s.id)
+          return (p && p.updated_at === s.updated_at) ? p : s
+        })
+      })
+    }
   }, [])
 
   const setupRealtime = useCallback(() => {
-    const ch = supabase
-      .channel('gnc-realtime-v3')
-      // Mises à jour incrémentales : pas de loadAll() sur chaque événement,
-      // on met à jour uniquement la ligne concernée dans le state local.
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sites' }, ({ new: site }) => {
-        if (!site.deleted) {
-          setSites(prev => prev.some(s => s.id === site.id) ? prev : [site, ...prev])
-        }
-      })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'sites' }, ({ new: site }) => {
-        setSites(prev =>
-          site.deleted
-            ? prev.filter(s => s.id !== site.id)
-            : prev.map(s => s.id === site.id ? { ...s, ...site } : s)
-        )
-      })
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'sites' }, ({ old }) => {
-        setSites(prev => prev.filter(s => s.id !== old.id))
-      })
-      .subscribe()
-    return () => supabase.removeChannel(ch)
-  }, [])
+    let channel = null
+    let reconnectTimer = null
+
+    const connect = () => {
+      channel = supabase
+        .channel('gnc-realtime-v3')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'sites' }, ({ eventType, new: newRow, old: oldRow }) => {
+          if (eventType === 'INSERT') {
+            if (!newRow.deleted) setSites(prev => prev.some(s => s.id === newRow.id) ? prev : [newRow, ...prev])
+          } else if (eventType === 'UPDATE') {
+            setSites(prev => newRow.deleted
+              ? prev.filter(s => s.id !== newRow.id)
+              : prev.map(s => s.id === newRow.id ? { ...s, ...newRow } : s)
+            )
+          } else if (eventType === 'DELETE') {
+            setSites(prev => prev.filter(s => s.id !== oldRow?.id))
+          }
+        })
+        .subscribe((status) => {
+          // Reconnexion automatique si la connexion WebSocket tombe
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            clearTimeout(reconnectTimer)
+            reconnectTimer = setTimeout(() => {
+              if (channel) supabase.removeChannel(channel)
+              connect()
+            }, 3000)
+          }
+        })
+    }
+
+    connect()
+
+    // Polling toutes les 15s : filet de sécurité si un événement Realtime est manqué.
+    // loadAll() préserve les références d'objets inchangés → pas de re-render inutile.
+    const poll = setInterval(loadAll, 15_000)
+
+    return () => {
+      clearTimeout(reconnectTimer)
+      clearInterval(poll)
+      if (channel) supabase.removeChannel(channel)
+    }
+  }, [loadAll])
 
   useEffect(() => {
     if (!pendingSiteIdRef.current || sites.length === 0) return
@@ -177,6 +234,21 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
       pendingSiteIdRef.current = null
       setSelectedSite(target)
       if (target.lat && target.lng) setFlyTo({ lat: target.lat, lng: target.lng })
+    }
+  }, [sites])
+
+  // Synchronise le panneau ouvert avec les mises à jour temps réel.
+  // Si quelqu'un d'autre modifie le site affiché, le panneau se met à jour automatiquement.
+  // Si le site est supprimé à distance, prévient l'utilisateur et ferme le panneau.
+  useEffect(() => {
+    const cur = selectedSiteRef.current
+    if (!cur) return
+    const updated = sites.find(s => s.id === cur.id)
+    if (!updated) {
+      toast.error('Ce site a été supprimé par un autre utilisateur', { id: 'site-deleted' })
+      setSelectedSite(null)
+    } else if (updated !== cur) {
+      setSelectedSite(updated)
     }
   }, [sites])
 
@@ -358,11 +430,33 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           style={{ height: '100%', width: '100%' }}
           zoomControl={false}
           tap={false}
+          preferCanvas={true}
         >
           <TileLayer
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            url={mapStyle === 'satellite'
+              ? "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+              : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"}
+            attribution={mapStyle === 'satellite'
+              ? 'Tiles &copy; Esri'
+              : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}
+            subdomains={mapStyle === 'satellite' ? '' : 'abc'}
+            keepBuffer={12}
+            updateWhenIdle={false}
+            updateWhenZooming={false}
+            crossOrigin={true}
+            maxZoom={19}
           />
+          {mapStyle === 'satellite' && (
+            <TileLayer
+              url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png"
+              subdomains="abcd"
+              opacity={0.85}
+              keepBuffer={12}
+              updateWhenIdle={false}
+              updateWhenZooming={false}
+              crossOrigin={true}
+            />
+          )}
           <MapInteraction
             onMapClick={handleMapClick}
             flyTo={flyTo}
@@ -402,7 +496,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           </button>
         </div>
 
-        {/* Légende */}
+        {/* Légende + toggle satellite */}
         <div
           className="absolute bottom-6 left-4 bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg p-3 text-xs text-gray-700 space-y-2 max-w-44"
           style={{ zIndex: 1000 }}
@@ -411,7 +505,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           {allCommercials.map(c => (
             <div key={c.id} className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: c.color }} />
-              <span className="truncate">{c.name}</span>
+              <span className="truncate">{firstName(c.name)}</span>
             </div>
           ))}
           <div className="border-t border-gray-100 pt-2 space-y-1">
@@ -424,12 +518,12 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
               <span className="text-gray-500">Chantier</span>
             </div>
           </div>
-          <p className="text-[10px] text-gray-400 border-t border-gray-100 pt-2 hidden sm:block">
-            Cliquer sur la carte pour ajouter
-          </p>
-          <p className="text-[10px] text-gray-400 border-t border-gray-100 pt-2 sm:hidden">
-            Bouton + pour ajouter un point
-          </p>
+          <button
+            onClick={() => setMapStyle(s => s === 'street' ? 'satellite' : 'street')}
+            className={`w-full text-[10px] font-semibold py-1.5 rounded-xl border transition-all active:scale-95 select-none ${mapStyle === 'satellite' ? 'bg-blue-700 text-white border-blue-700' : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'}`}
+          >
+            {mapStyle === 'satellite' ? '🗺️ Vue plan' : '🛰️ Satellite'}
+          </button>
         </div>
 
         {/* Panneau détail site — w-full sur mobile, 384px sur desktop */}
@@ -438,10 +532,16 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
             <SiteDetailPanel
               site={selectedSite}
               commercial={allCommercials.find(c => c.id === selectedSite.commercial_id)}
+              currentCommercial={commercial}
               currentCommercialId={commercial.id}
               color={getColor(selectedSite.commercial_id)}
               onClose={() => setSelectedSite(null)}
-              onUpdated={() => { loadAll(); setSelectedSite(null) }}
+              onUpdated={(deleted) => {
+                if (deleted && selectedSite) {
+                  setSites(prev => prev.filter(s => s.id !== selectedSite.id))
+                  setSelectedSite(null)
+                }
+              }}
             />
           </div>
         )}
@@ -452,7 +552,10 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         <AddSiteModal
           position={addPosition}
           commercial={commercial}
-          onSave={() => { loadAll(); setShowAddModal(false) }}
+          onSave={(site) => {
+            setSites(prev => prev.some(s => s.id === site.id) ? prev : [site, ...prev])
+            setShowAddModal(false)
+          }}
           onClose={() => setShowAddModal(false)}
         />
       )}

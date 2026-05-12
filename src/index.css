@@ -16,6 +16,15 @@ html, body, #root {
   height: 100%;
   width: 100%;
   font-family: inherit;
+  background: #e8e0d5;
+}
+
+/* Tiles fade in smoothly instead of popping in as gray squares */
+.leaflet-tile {
+  transition: opacity 0.12s ease-in;
+}
+.leaflet-tile-container {
+  will-change: transform;
 }
 
 /* Custom pin marker */

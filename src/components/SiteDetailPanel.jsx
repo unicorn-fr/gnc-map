@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, Edit2, Trash2, Camera, Loader2, Phone, Mail, MapPin } from 'lucide-react'
+import { X, Edit2, Trash2, Camera, Loader2, Phone, Mail, MapPin, Copy } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { compressImage } from '../lib/compressImage'
 import { sendPushToAll } from '../lib/push'
@@ -19,7 +19,7 @@ const fmt = (iso) =>
     hour: '2-digit', minute: '2-digit',
   })
 
-export default function SiteDetailPanel({ site, commercial, currentCommercialId, color, onClose, onUpdated }) {
+export default function SiteDetailPanel({ site, commercial, currentCommercial, currentCommercialId, color, onClose, onUpdated }) {
   const [photos, setPhotos] = useState([])
   const [reports, setReports] = useState([])
   const [newReport, setNewReport] = useState('')
@@ -42,6 +42,25 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
   useEffect(() => {
     loadPhotos()
     loadReports()
+  }, [site.id])
+
+  // Temps réel : pas de filtre serveur (nécessite RLS) → filtre côté client.
+  useEffect(() => {
+    const ch = supabase.channel(`site-detail-${site.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'photos' }, ({ new: photo }) => {
+        if (photo.site_id === site.id) loadPhotos()
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'photos' }, ({ old }) => {
+        if (old.site_id === site.id) setPhotos(prev => prev.filter(p => p.id !== old.id))
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reports' }, ({ new: report }) => {
+        if (report.site_id === site.id) loadReports()
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'reports' }, ({ old }) => {
+        if (old.site_id === site.id) setReports(prev => prev.filter(r => r.id !== old.id))
+      })
+      .subscribe()
+    return () => supabase.removeChannel(ch)
   }, [site.id])
 
   const loadPhotos = async () => {
@@ -74,7 +93,7 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
         } catch { /* ignore */ }
       }
       toast.success('Photo ajoutée')
-      sendPushToAll(`${firstName(commercial?.name ?? '')} — photo sur ${site.name}`, 'Nouvelle photo ajoutée', `/?site=${site.id}`, currentCommercialId)
+      sendPushToAll(`${firstName(currentCommercial?.name ?? '')} — photo sur ${site.name}`, 'Nouvelle photo ajoutée', `/?site=${site.id}`, currentCommercialId)
     } finally {
       setUploading(false)
     }
@@ -88,15 +107,28 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
 
   const handleAddReport = async () => {
     if (!newReport.trim()) return
-    const { data } = await supabase.from('reports')
-      .insert({ site_id: site.id, commercial_id: currentCommercialId, content: newReport.trim() })
-      .select('*, commercials(id, name)').single()
-    if (data) {
-      setReports(prev => [data, ...prev])
-      setNewReport('')
-      toast.success('Rapport ajouté')
-      sendPushToAll(`${firstName(commercial?.name ?? '')} — rapport sur ${site.name}`, newReport.trim().slice(0, 80), `/?site=${site.id}`, currentCommercialId)
+    const content = newReport.trim()
+    setNewReport('')  // Vider immédiatement pour l'UX
+
+    const { error } = await supabase.from('reports')
+      .insert({ site_id: site.id, commercial_id: currentCommercialId, content })
+
+    if (error) {
+      setNewReport(content)  // Restaurer si erreur
+      toast.error("Erreur lors de l'ajout du rapport")
+      return
     }
+
+    // Recharger pour avoir la jointure correcte (auteur, etc.)
+    // Le realtime déclenchera aussi loadReports() pour les autres utilisateurs
+    await loadReports()
+    toast.success('Rapport ajouté')
+    sendPushToAll(
+      `${firstName(currentCommercial?.name ?? '')} — rapport sur ${site.name}`,
+      content.slice(0, 80),
+      `/?site=${site.id}`,
+      currentCommercialId
+    )
   }
 
   const handleDeleteReport = async (id) => {
@@ -121,7 +153,7 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
     if (error) return toast.error('Erreur lors de la mise à jour')
     toast.success('Site mis à jour')
     setEditMode(false)
-    sendPushToAll(`${firstName(commercial?.name ?? '')} a modifié ${editForm.name.trim()}`, `Statut : ${STATUS[editForm.status]?.label ?? editForm.status}`, `/?site=${site.id}`, currentCommercialId)
+    sendPushToAll(`${firstName(currentCommercial?.name ?? '')} a modifié ${editForm.name.trim()}`, `Statut : ${STATUS[editForm.status]?.label ?? editForm.status}`, `/?site=${site.id}`, currentCommercialId)
     onUpdated()
   }
 
@@ -129,7 +161,16 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
     if (!window.confirm(`Supprimer "${site.name}" ?\n\nSi ce site a un Code client, il ne sera pas réimporté lors des prochaines importations Excel.`)) return
     await supabase.from('sites').update({ deleted: true, updated_at: new Date().toISOString() }).eq('id', site.id)
     toast.success('Site supprimé')
-    onUpdated()
+    onUpdated(true)
+  }
+
+  const copyAddress = () => {
+    const addr = [site.address, site.postcode, site.city].filter(Boolean).join(', ')
+      || (site.lat ? `${site.lat.toFixed(5)}, ${site.lng.toFixed(5)}` : '')
+    if (!addr) return
+    navigator.clipboard.writeText(addr)
+      .then(() => toast.success('Adresse copiée !'))
+      .catch(() => toast.error('Impossible de copier'))
   }
 
   return (
@@ -234,15 +275,50 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
             </div>
           )}
 
-          {/* Contact info */}
-          {!editMode && (site.phone || site.email || site.address) && (
-            <div className="px-4 py-3 border-b space-y-1.5">
-              {site.address && (
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                  <MapPin size={14} className="text-gray-400 flex-shrink-0" />
-                  <span>{[site.address, site.postcode, site.city].filter(Boolean).join(', ')}</span>
+          {/* Contact info + navigation */}
+          {!editMode && (site.phone || site.email || site.address || site.city || site.lat) && (
+            <div className="px-4 py-3 border-b space-y-2">
+
+              {/* Adresse avec bouton copier */}
+              {(site.address || site.city || site.lat) && (
+                <div className="flex items-start gap-2">
+                  <MapPin size={14} className="text-gray-400 flex-shrink-0 mt-0.5" />
+                  <span className="text-sm text-gray-600 flex-1 leading-snug">
+                    {[site.address, site.postcode, site.city].filter(Boolean).join(', ')
+                      || `${site.lat?.toFixed(5)}, ${site.lng?.toFixed(5)}`}
+                  </span>
+                  <button
+                    onClick={copyAddress}
+                    className="flex-shrink-0 p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+                    title="Copier l'adresse"
+                  >
+                    <Copy size={13} className="text-gray-400" />
+                  </button>
                 </div>
               )}
+
+              {/* Boutons navigation GPS */}
+              {site.lat && (
+                <div className="flex gap-2 pt-1">
+                  <a
+                    href={`https://waze.com/ul?ll=${site.lat},${site.lng}&navigate=yes`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-[#05C8F7] hover:bg-[#00b4de] active:scale-95 text-white rounded-xl text-xs font-bold transition-all"
+                  >
+                    🚗 Waze
+                  </a>
+                  <a
+                    href={`https://www.google.com/maps/dir/?api=1&destination=${site.lat},${site.lng}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-[#4285F4] hover:bg-[#3574e2] active:scale-95 text-white rounded-xl text-xs font-bold transition-all"
+                  >
+                    🗺️ Google Maps
+                  </a>
+                </div>
+              )}
+
               {site.phone && (
                 <a href={`tel:${site.phone}`} className="flex items-center gap-2 text-sm text-blue-600 hover:underline">
                   <Phone size={14} className="flex-shrink-0" />
@@ -263,15 +339,6 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
             <div className="px-4 py-3 border-b">
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Notes</p>
               <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{site.notes}</p>
-            </div>
-          )}
-
-          {/* Coordinates */}
-          {site.lat && (
-            <div className="px-4 py-2 border-b bg-gray-50">
-              <p className="text-[11px] text-gray-400 font-mono">
-                📍 {site.lat.toFixed(5)}, {site.lng.toFixed(5)}
-              </p>
             </div>
           )}
 
@@ -341,9 +408,7 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
                     <span className="text-xs font-semibold text-gray-700">{report.commercials?.name}</span>
                     <div className="flex items-center gap-2">
                       <span className="text-[11px] text-gray-400">{fmt(report.created_at)}</span>
-                      {report.commercial_id === currentCommercialId && (
-                        <button onClick={() => handleDeleteReport(report.id)} className="text-red-400 hover:text-red-600 font-bold text-sm">×</button>
-                      )}
+                      <button onClick={() => handleDeleteReport(report.id)} className="text-red-400 hover:text-red-600 font-bold text-sm">×</button>
                     </div>
                   </div>
                   <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">{report.content}</p>
