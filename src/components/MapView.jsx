@@ -1,13 +1,16 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo, memo } from 'react'
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import { Menu, Plus, Navigation, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { requestAndSubscribe } from '../lib/push'
+import { firstName } from '../lib/utils'
 import Sidebar from './Sidebar'
 import AddSiteModal from './AddSiteModal'
 import SiteDetailPanel from './SiteDetailPanel'
 import ImportPage from './ImportPage'
 import ReportsPage from './ReportsPage'
+import InstallBanner from './InstallBanner'
 import toast from 'react-hot-toast'
 
 delete L.Icon.Default.prototype._getIconUrl
@@ -34,6 +37,17 @@ const createUserIcon = (color) =>
     iconAnchor: [9, 9],
   })
 
+// Composant marqueur mémoïsé : ne re-render que si le site ou la couleur change.
+// Sans memo, createSiteIcon recrée un L.divIcon à chaque render global,
+// ce qui force Leaflet à re-peindre TOUS les marqueurs dans le DOM.
+const SiteMarker = memo(function SiteMarker({ site, color, onSelect }) {
+  const icon = useMemo(() => createSiteIcon(color, site.type), [color, site.type])
+  const handlers = useMemo(() => ({
+    click: (e) => { L.DomEvent.stopPropagation(e); onSelect(site) },
+  }), [site, onSelect])
+  return <Marker position={[site.lat, site.lng]} icon={icon} eventHandlers={handlers} />
+})
+
 function MapInteraction({ onMapClick, flyTo, onFlyToDone }) {
   const map = useMap()
 
@@ -53,7 +67,7 @@ function MapInteraction({ onMapClick, flyTo, onFlyToDone }) {
   return null
 }
 
-export default function MapView({ commercial, onSwitch }) {
+export default function MapView({ commercial, onSwitch, installPrompt, onInstalled }) {
   const [allCommercials, setAllCommercials] = useState([])
   const [sites, setSites] = useState([])
   const [selectedSite, setSelectedSite] = useState(null)
@@ -67,55 +81,106 @@ export default function MapView({ commercial, onSwitch }) {
   const [visibleCommercials, setVisibleCommercials] = useState(new Set())
   const [visibleTypes, setVisibleTypes] = useState(new Set(['siege', 'chantier']))
   const [flyTo, setFlyTo] = useState(null)
+  const watchIdRef = useRef(null)
 
   useEffect(() => {
     loadAll()
     const cleanup = setupRealtime()
-    // Délai pour laisser la carte Leaflet s'initialiser avant de voler vers la position
-    const timer = setTimeout(autoLocate, 1200)
-    return () => { cleanup(); clearTimeout(timer) }
+    const timer = setTimeout(startTracking, 1200)
+    requestAndSubscribe(commercial.id)
+
+    // Rafraîchir les données quand l'app revient au premier plan (h24)
+    const handleVisible = () => {
+      if (document.visibilityState === 'visible') loadAll()
+    }
+    document.addEventListener('visibilitychange', handleVisible)
+
+    return () => {
+      cleanup()
+      clearTimeout(timer)
+      document.removeEventListener('visibilitychange', handleVisible)
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current)
+      }
+    }
   }, [])
 
-  const autoLocate = () => {
-    if (!navigator.geolocation) return
-    navigator.geolocation.getCurrentPosition(
+  const startTracking = () => {
+    if (!navigator.geolocation || watchIdRef.current !== null) return
+    let firstFix = true
+    watchIdRef.current = navigator.geolocation.watchPosition(
       ({ coords: { latitude: lat, longitude: lng } }) => {
         setUserPosition([lat, lng])
-        setFlyTo({ lat, lng })
+        if (firstFix) {
+          setFlyTo({ lat, lng })
+          firstFix = false
+        }
       },
       () => {}, // silencieux si permission refusée
-      { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
     )
   }
 
-  const loadAll = async () => {
+  const loadAll = useCallback(async () => {
     const [{ data: comms }, { data: sitesData }] = await Promise.all([
       supabase.from('commercials').select('*').order('created_at'),
-      supabase.from('sites').select('*, photos(id, url)').order('created_at', { ascending: false }),
+      supabase.from('sites').select('*').order('created_at', { ascending: false }),
     ])
     if (comms) {
       setAllCommercials(comms)
-      setVisibleCommercials(new Set(comms.map(c => c.id)))
+      setVisibleCommercials(prev => {
+        if (prev.size === 0) return new Set(comms.map(c => c.id))
+        const next = new Set(prev)
+        comms.forEach(c => { if (!prev.has(c.id)) next.add(c.id) })
+        return next
+      })
     }
     if (sitesData) setSites(sitesData.filter(s => !s.deleted))
-  }
+  }, [])
 
-  const setupRealtime = () => {
+  const setupRealtime = useCallback(() => {
     const ch = supabase
-      .channel('gnc-realtime-v2')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'sites' }, loadAll)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'photos' }, loadAll)
+      .channel('gnc-realtime-v3')
+      // Mises à jour incrémentales : pas de loadAll() sur chaque événement,
+      // on met à jour uniquement la ligne concernée dans le state local.
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sites' }, ({ new: site }) => {
+        if (!site.deleted) {
+          setSites(prev => prev.some(s => s.id === site.id) ? prev : [site, ...prev])
+        }
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'sites' }, ({ new: site }) => {
+        setSites(prev =>
+          site.deleted
+            ? prev.filter(s => s.id !== site.id)
+            : prev.map(s => s.id === site.id ? { ...s, ...site } : s)
+        )
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'sites' }, ({ old }) => {
+        setSites(prev => prev.filter(s => s.id !== old.id))
+      })
       .subscribe()
     return () => supabase.removeChannel(ch)
-  }
+  }, [])
 
-  const getColor = (commercialId) => {
-    const c = allCommercials.find(x => x.id === commercialId)
-    return c?.color ?? '#6B7280'
-  }
+  const colorMap = useMemo(() => {
+    const m = {}
+    allCommercials.forEach(c => { m[c.id] = c.color })
+    return m
+  }, [allCommercials])
+
+  const getColor = useCallback((id) => colorMap[id] ?? '#6B7280', [colorMap])
+
+  const handleSelectSite = useCallback((site) => setSelectedSite(site), [])
+  const handleFlyToDone = useCallback(() => setFlyTo(null), [])
 
   const handleLocateMe = async () => {
     if (!navigator.geolocation) return toast.error('Géolocalisation non disponible sur cet appareil')
+
+    // Si la position est déjà connue (watchPosition en cours), centrer simplement la carte
+    if (userPosition) {
+      setFlyTo({ lat: userPosition[0], lng: userPosition[1] })
+      return
+    }
 
     // Vérification de la permission si l'API est disponible (pas sur iOS Safari)
     if (navigator.permissions?.query) {
@@ -125,51 +190,39 @@ export default function MapView({ commercial, onSwitch }) {
       } catch {}
     }
 
-    toast.loading('Recherche de votre position…', { id: 'locate' })
-
-    const onSuccess = ({ coords: { latitude: lat, longitude: lng } }) => {
-      setUserPosition([lat, lng])
-      setFlyTo({ lat, lng })
-      toast.success('Position trouvée !', { id: 'locate' })
-    }
-
-    const onError = (err) => {
-      if (err.code === 1) {
-        toast.dismiss('locate')
-        setShowLocationHelp(true)
-        return
-      }
-      // Code 2 (indisponible) ou 3 (timeout) → fallback réseau/WiFi
-      navigator.geolocation.getCurrentPosition(
-        onSuccess,
-        () => toast.error('Position introuvable — réessayez en extérieur ou activez le WiFi', { id: 'locate' }),
-        { enableHighAccuracy: false, timeout: 20000, maximumAge: 120000 }
-      )
-    }
-
-    navigator.geolocation.getCurrentPosition(onSuccess, onError, { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 })
+    // Démarrer le tracking continu (watchPosition), il mettra à jour userPosition et fera le flyTo initial
+    startTracking()
+    toast.success('Localisation activée !', { id: 'locate' })
   }
 
   const handleAddHere = () => {
-    if (!navigator.geolocation) return toast.error('Géolocalisation non disponible')
+    // Ouvrir le modal immédiatement, sans bloquer sur la géolocalisation
+    setAddPosition(null)
+    setShowAddModal(true)
+
+    // Tenter la géolocalisation en arrière-plan pour pré-remplir la position
+    if (!navigator.geolocation) return
     navigator.geolocation.getCurrentPosition(
       ({ coords: { latitude: lat, longitude: lng } }) => {
         setUserPosition([lat, lng])
         setAddPosition({ lat, lng })
-        setShowAddModal(true)
       },
-      () => toast.error("Impossible d'obtenir votre position"),
-      { enableHighAccuracy: true, timeout: 10000 }
+      () => {}, // ignorer silencieusement si refusée/timeout
+      { enableHighAccuracy: true, timeout: 8000 }
     )
   }
 
   const handleMapClick = (pos) => {
+    // Désactiver le clic-carte sur mobile : évite d'ouvrir le modal
+    // en voulant simplement naviguer / après avoir tapé un marqueur
+    if (window.matchMedia('(max-width: 640px)').matches || 'ontouchstart' in window) return
     setAddPosition(pos)
     setShowAddModal(true)
   }
 
-  const filtered = sites.filter(
-    s => s.lat && s.lng && visibleCommercials.has(s.commercial_id) && visibleTypes.has(s.type)
+  const filtered = useMemo(() =>
+    sites.filter(s => s.lat && s.lng && visibleCommercials.has(s.commercial_id) && visibleTypes.has(s.type)),
+    [sites, visibleCommercials, visibleTypes]
   )
 
   if (showImport) {
@@ -216,7 +269,7 @@ export default function MapView({ commercial, onSwitch }) {
             {commercial.name.charAt(0).toUpperCase()}
           </div>
           <span className="text-white text-xs font-semibold truncate max-w-24">
-            {commercial.name}
+            {firstName(commercial.name)}
           </span>
         </button>
       </div>
@@ -230,6 +283,7 @@ export default function MapView({ commercial, onSwitch }) {
             <Sidebar
               commercials={allCommercials}
               sites={sites}
+              currentCommercialId={commercial.id}
               visibleCommercials={visibleCommercials}
               setVisibleCommercials={setVisibleCommercials}
               visibleTypes={visibleTypes}
@@ -285,6 +339,7 @@ export default function MapView({ commercial, onSwitch }) {
           zoom={6}
           style={{ height: '100%', width: '100%' }}
           zoomControl={false}
+          tap={false}
         >
           <TileLayer
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -293,17 +348,17 @@ export default function MapView({ commercial, onSwitch }) {
           <MapInteraction
             onMapClick={handleMapClick}
             flyTo={flyTo}
-            onFlyToDone={() => setFlyTo(null)}
+            onFlyToDone={handleFlyToDone}
           />
           {userPosition && (
             <Marker position={userPosition} icon={createUserIcon(commercial.color)} />
           )}
           {filtered.map(site => (
-            <Marker
+            <SiteMarker
               key={site.id}
-              position={[site.lat, site.lng]}
-              icon={createSiteIcon(getColor(site.commercial_id), site.type)}
-              eventHandlers={{ click: () => setSelectedSite(site) }}
+              site={site}
+              color={getColor(site.commercial_id)}
+              onSelect={handleSelectSite}
             />
           ))}
         </MapContainer>
@@ -351,14 +406,17 @@ export default function MapView({ commercial, onSwitch }) {
               <span className="text-gray-500">Chantier</span>
             </div>
           </div>
-          <p className="text-[10px] text-gray-400 border-t border-gray-100 pt-2">
+          <p className="text-[10px] text-gray-400 border-t border-gray-100 pt-2 hidden sm:block">
             Cliquer sur la carte pour ajouter
+          </p>
+          <p className="text-[10px] text-gray-400 border-t border-gray-100 pt-2 sm:hidden">
+            Bouton + pour ajouter un point
           </p>
         </div>
 
-        {/* Panneau détail site */}
+        {/* Panneau détail site — w-full sur mobile, 384px sur desktop */}
         {selectedSite && (
-          <div className="absolute inset-y-0 right-0" style={{ zIndex: 1050 }}>
+          <div className="absolute inset-y-0 right-0 w-full sm:w-96" style={{ zIndex: 1050 }}>
             <SiteDetailPanel
               site={selectedSite}
               commercial={allCommercials.find(c => c.id === selectedSite.commercial_id)}
@@ -380,6 +438,7 @@ export default function MapView({ commercial, onSwitch }) {
           onClose={() => setShowAddModal(false)}
         />
       )}
+
     </div>
   )
 }

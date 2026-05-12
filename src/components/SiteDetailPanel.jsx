@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { X, Edit2, Trash2, Camera, Loader2, Phone, Mail, MapPin } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { compressImage } from '../lib/compressImage'
+import { sendPushToAll } from '../lib/push'
+import { firstName } from '../lib/utils'
 import toast from 'react-hot-toast'
 
 const STATUS = {
@@ -68,6 +70,7 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
       } catch { /* ignore */ }
     }
     toast.success('Photo ajoutée')
+    sendPushToAll(`${firstName(commercial?.name ?? '')} — photo sur ${site.name}`, 'Nouvelle photo ajoutée')
   }
 
   const handleDeletePhoto = async (photo) => {
@@ -81,7 +84,12 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
     const { data } = await supabase.from('reports')
       .insert({ site_id: site.id, commercial_id: currentCommercialId, content: newReport.trim() })
       .select('*, commercials(id, name)').single()
-    if (data) { setReports(prev => [data, ...prev]); setNewReport(''); toast.success('Rapport ajouté') }
+    if (data) {
+      setReports(prev => [data, ...prev])
+      setNewReport('')
+      toast.success('Rapport ajouté')
+      sendPushToAll(`${firstName(commercial?.name ?? '')} — rapport sur ${site.name}`, newReport.trim().slice(0, 80))
+    }
   }
 
   const handleDeleteReport = async (id) => {
@@ -106,6 +114,7 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
     if (error) return toast.error('Erreur lors de la mise à jour')
     toast.success('Site mis à jour')
     setEditMode(false)
+    sendPushToAll(`${firstName(commercial?.name ?? '')} a modifié ${editForm.name.trim()}`, `Statut : ${STATUS[editForm.status]?.label ?? editForm.status}`)
     onUpdated()
   }
 
@@ -118,7 +127,7 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
 
   return (
     <>
-      <div className="absolute inset-y-0 right-0 w-full sm:w-96 bg-white shadow-2xl z-20 flex flex-col">
+      <div className="absolute inset-0 bg-white shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex-shrink-0 border-b px-4 py-3">
           <div className="flex items-start justify-between gap-2">

@@ -1,12 +1,23 @@
 import { X, Upload, FileText } from 'lucide-react'
+import { firstName } from '../lib/utils'
 
 const TYPE_OPTS = [
   { value: 'chantier', emoji: '🏗️', label: 'Chantiers' },
   { value: 'siege',    emoji: '🏢', label: 'Sièges sociaux' },
 ]
 
+const relTime = (iso) => {
+  if (!iso) return ''
+  const diff = Date.now() - new Date(iso)
+  if (diff < 60_000)       return 'à l\'instant'
+  if (diff < 3_600_000)    return `il y a ${Math.floor(diff / 60_000)} min`
+  if (diff < 86_400_000)   return `il y a ${Math.floor(diff / 3_600_000)} h`
+  if (diff < 7 * 86_400_000) return `il y a ${Math.floor(diff / 86_400_000)} j`
+  return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })
+}
+
 export default function Sidebar({
-  commercials, sites,
+  commercials, sites, currentCommercialId,
   visibleCommercials, setVisibleCommercials,
   visibleTypes, setVisibleTypes,
   getColor, onClose, onSelectSite, onOpenImport, onOpenReports,
@@ -27,7 +38,11 @@ export default function Sidebar({
     })
   }
 
-  const totalClients = sites.filter(s => s.status === 'client' || s.status === 'en_cours').length
+  // Activité récente des AUTRES commerciaux (les 10 dernières)
+  const recentActivity = [...sites]
+    .filter(s => !s.import_log_id)
+    .sort((a, b) => new Date(b.updated_at ?? b.created_at) - new Date(a.updated_at ?? a.created_at))
+    .slice(0, 15)
 
   return (
     <div className="w-80 bg-white h-full shadow-2xl flex flex-col overflow-hidden">
@@ -35,7 +50,7 @@ export default function Sidebar({
       <div className="bg-blue-950 text-white px-5 py-4 flex items-center justify-between flex-shrink-0">
         <div>
           <p className="font-bold text-base">Menu</p>
-          <p className="text-blue-300 text-xs">Filtres & Statistiques</p>
+          <p className="text-blue-300 text-xs">Filtres & Activité</p>
         </div>
         <button onClick={onClose} className="p-2 hover:bg-blue-800 rounded-xl transition-colors">
           <X size={20} />
@@ -67,24 +82,47 @@ export default function Sidebar({
           </button>
         </div>
 
-        {/* Global stats */}
-        <div className="p-4 border-b bg-gray-50">
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Vue d'ensemble</p>
-          <div className="grid grid-cols-2 gap-2">
-            {[
-              { icon: '📍', value: sites.length,                                          label: 'Sites total' },
-              { icon: '✅', value: totalClients,                                           label: 'Clients actifs' },
-              { icon: '🏗️', value: sites.filter(s => s.type === 'chantier').length,       label: 'Chantiers' },
-              { icon: '🏢', value: sites.filter(s => s.type === 'siege').length,           label: 'Sièges' },
-            ].map(stat => (
-              <div key={stat.label} className="bg-white rounded-2xl p-3 border border-gray-100">
-                <p className="text-lg mb-0.5">{stat.icon}</p>
-                <p className="text-2xl font-extrabold text-gray-800">{stat.value}</p>
-                <p className="text-[11px] text-gray-400">{stat.label}</p>
-              </div>
-            ))}
+        {/* Activité récente des autres */}
+        {recentActivity.length > 0 && (
+          <div className="p-4 border-b">
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">
+              Activité récente
+            </p>
+            {recentActivity.map(site => {
+              const comm = commercials.find(c => c.id === site.commercial_id)
+              const color = getColor(site.commercial_id)
+              const ts = site.updated_at ?? site.created_at
+              const isMe = site.commercial_id === currentCommercialId
+              return (
+                <button
+                  key={site.id}
+                  onClick={() => onSelectSite(site)}
+                  className="w-full flex items-start gap-3 p-2.5 hover:bg-gray-50 rounded-xl mb-1 text-left transition-colors group"
+                >
+                  <div
+                    className="w-8 h-8 rounded-xl flex-shrink-0 flex items-center justify-center text-white font-bold text-xs mt-0.5"
+                    style={{ background: color }}
+                  >
+                    {firstName(comm?.name ?? '?').charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-800 truncate group-hover:text-blue-700">
+                      {site.name}
+                    </p>
+                    <p className="text-xs text-gray-400 truncate">
+                      {isMe ? 'Moi' : firstName(comm?.name ?? '')}
+                      {site.city ? ` · ${site.city}` : ''}
+                      <span className="ml-1 text-gray-300">· {relTime(ts)}</span>
+                    </p>
+                  </div>
+                  <span className="text-[10px] text-gray-300 mt-1 flex-shrink-0">
+                    {site.type === 'siege' ? '🏢' : '🏗️'}
+                  </span>
+                </button>
+              )
+            })}
           </div>
-        </div>
+        )}
 
         {/* Commercials filter */}
         <div className="p-4 border-b">
@@ -108,7 +146,7 @@ export default function Sidebar({
                   {c.name.charAt(0).toUpperCase()}
                 </div>
                 <div className="flex-1 text-left min-w-0">
-                  <p className="font-semibold text-sm text-gray-800 truncate">{c.name}</p>
+                  <p className="font-semibold text-sm text-gray-800 truncate">{firstName(c.name)}</p>
                   <p className="text-xs text-gray-400 mt-0.5">
                     {cs.filter(s => s.type === 'siege').length} siège ·{' '}
                     {cs.filter(s => s.type === 'chantier').length} chantier
@@ -126,7 +164,7 @@ export default function Sidebar({
         </div>
 
         {/* Type filter */}
-        <div className="p-4 border-b">
+        <div className="p-4">
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Type de site</p>
           {TYPE_OPTS.map(opt => {
             const count = sites.filter(s => s.type === opt.value).length
@@ -147,40 +185,6 @@ export default function Sidebar({
               </button>
             )
           })}
-        </div>
-
-        {/* Recent sites */}
-        <div className="p-4">
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Sites récents</p>
-          {sites.slice(0, 15).map(site => {
-            const comm = commercials.find(c => c.id === site.commercial_id)
-            const color = getColor(site.commercial_id)
-            return (
-              <button
-                key={site.id}
-                onClick={() => onSelectSite(site)}
-                className="w-full flex items-start gap-3 p-2.5 hover:bg-gray-50 rounded-xl mb-1 text-left transition-colors group"
-              >
-                <div
-                  className="w-8 h-8 rounded-xl flex-shrink-0 flex items-center justify-center text-white font-bold text-xs mt-0.5"
-                  style={{ background: color }}
-                >
-                  {site.type === 'siege' ? 'S' : 'C'}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-800 truncate group-hover:text-blue-700">
-                    {site.name}
-                  </p>
-                  <p className="text-xs text-gray-400 truncate">
-                    {comm?.name ?? ''}{site.company ? ` · ${site.company}` : ''}
-                  </p>
-                </div>
-              </button>
-            )
-          })}
-          {sites.length === 0 && (
-            <p className="text-sm text-gray-400 text-center py-6">Aucun site enregistré</p>
-          )}
         </div>
       </div>
     </div>
