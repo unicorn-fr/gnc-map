@@ -152,7 +152,7 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
               )}
             </div>
             <div className="flex items-center gap-1 flex-shrink-0">
-              {isOwner && !editMode && (
+              {!editMode && (
                 <>
                   <button onClick={() => setEditMode(true)} className="p-2 hover:bg-gray-100 rounded-xl">
                     <Edit2 size={15} className="text-gray-500" />
@@ -171,7 +171,7 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
 
         <div className="flex-1 overflow-y-auto">
           {/* Edit form */}
-          {editMode && isOwner && (
+          {editMode && (
             <div className="p-4 border-b bg-blue-50/50 space-y-3">
               {[
                 { key: 'name', label: 'Nom', placeholder: 'Nom du site' },
@@ -290,13 +290,13 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
                 {photos.map(photo => (
                   <div
                     key={photo.id}
-                    className="relative aspect-square rounded-xl overflow-hidden group cursor-pointer"
+                    className="relative aspect-square rounded-xl overflow-hidden cursor-pointer"
                     onClick={() => setLightbox(photo.url)}
                   >
                     <img src={photo.url} alt="" className="w-full h-full object-cover" loading="lazy" />
                     <button
                       onClick={(e) => { e.stopPropagation(); handleDeletePhoto(photo) }}
-                      className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full items-center justify-center text-sm font-bold hidden group-hover:flex shadow"
+                      className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center text-sm font-bold shadow"
                     >
                       ×
                     </button>
