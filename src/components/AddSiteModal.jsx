@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { X, Camera, Loader2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import toast from 'react-hot-toast'
@@ -34,6 +34,40 @@ export default function AddSiteModal({ position, commercial, onSave, onClose }) 
   const [previews, setPreviews] = useState([])
   const [photoFiles, setPhotoFiles] = useState([])
   const [saving, setSaving] = useState(false)
+
+  const [allNames, setAllNames] = useState([])
+  const [allCompanies, setAllCompanies] = useState([])
+  const [nameSuggestions, setNameSuggestions] = useState([])
+  const [companySuggestions, setCompanySuggestions] = useState([])
+
+  const nameRef = useRef(null)
+  const companyRef = useRef(null)
+
+  useEffect(() => {
+    supabase
+      .from('sites')
+      .select('name, company')
+      .then(({ data }) => {
+        if (!data) return
+        const names = [...new Set(data.map(r => r.name).filter(Boolean))].sort()
+        const companies = [...new Set(data.map(r => r.company).filter(Boolean))].sort()
+        setAllNames(names)
+        setAllCompanies(companies)
+      })
+  }, [])
+
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (nameRef.current && !nameRef.current.contains(e.target)) {
+        setNameSuggestions([])
+      }
+      if (companyRef.current && !companyRef.current.contains(e.target)) {
+        setCompanySuggestions([])
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
 
   const set = (key) => (e) => setForm(prev => ({ ...prev, [key]: e.target.value }))
 
@@ -130,25 +164,89 @@ export default function AddSiteModal({ position, commercial, onSave, onClose }) 
             <label className="block text-sm font-semibold text-gray-700 mb-1.5">
               Nom du site <span className="text-red-500">*</span>
             </label>
-            <input
-              type="text"
-              value={form.name}
-              onChange={set('name')}
-              placeholder="Ex : Chantier Tour Lumière"
-              required
-              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
-            />
+            <div className="relative" ref={nameRef}>
+              <input
+                type="text"
+                value={form.name}
+                onChange={(e) => {
+                  const val = e.target.value
+                  setForm(prev => ({ ...prev, name: val }))
+                  if (val.length >= 2) {
+                    const q = val.toLowerCase()
+                    setNameSuggestions(
+                      allNames.filter(n => n.toLowerCase().includes(q)).slice(0, 6)
+                    )
+                  } else {
+                    setNameSuggestions([])
+                  }
+                }}
+                onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setNameSuggestions([]) } }}
+                placeholder="Ex : Chantier Tour Lumière"
+                required
+                className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+              />
+              {nameSuggestions.length > 0 && (
+                <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+                  {nameSuggestions.map((s, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        setForm(prev => ({ ...prev, name: s }))
+                        setNameSuggestions([])
+                      }}
+                      className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1.5">Entreprise</label>
-            <input
-              type="text"
-              value={form.company}
-              onChange={set('company')}
-              placeholder="Ex : Bouygues Construction"
-              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
-            />
+            <div className="relative" ref={companyRef}>
+              <input
+                type="text"
+                value={form.company}
+                onChange={(e) => {
+                  const val = e.target.value
+                  setForm(prev => ({ ...prev, company: val }))
+                  if (val.length >= 2) {
+                    const q = val.toLowerCase()
+                    setCompanySuggestions(
+                      allCompanies.filter(c => c.toLowerCase().includes(q)).slice(0, 6)
+                    )
+                  } else {
+                    setCompanySuggestions([])
+                  }
+                }}
+                onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setCompanySuggestions([]) } }}
+                placeholder="Ex : Bouygues Construction"
+                className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+              />
+              {companySuggestions.length > 0 && (
+                <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+                  {companySuggestions.map((s, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        setForm(prev => ({ ...prev, company: s }))
+                        setCompanySuggestions([])
+                      }}
+                      className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           <div>

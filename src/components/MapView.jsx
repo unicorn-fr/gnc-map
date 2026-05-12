@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import { Menu, Plus, Navigation, X } from 'lucide-react'
@@ -67,24 +67,35 @@ export default function MapView({ commercial, onSwitch }) {
   const [visibleCommercials, setVisibleCommercials] = useState(new Set())
   const [visibleTypes, setVisibleTypes] = useState(new Set(['siege', 'chantier']))
   const [flyTo, setFlyTo] = useState(null)
+  const watchIdRef = useRef(null)
 
   useEffect(() => {
     loadAll()
     const cleanup = setupRealtime()
     // Délai pour laisser la carte Leaflet s'initialiser avant de voler vers la position
-    const timer = setTimeout(autoLocate, 1200)
-    return () => { cleanup(); clearTimeout(timer) }
+    const timer = setTimeout(startTracking, 1200)
+    return () => {
+      cleanup()
+      clearTimeout(timer)
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current)
+      }
+    }
   }, [])
 
-  const autoLocate = () => {
-    if (!navigator.geolocation) return
-    navigator.geolocation.getCurrentPosition(
+  const startTracking = () => {
+    if (!navigator.geolocation || watchIdRef.current !== null) return
+    let firstFix = true
+    watchIdRef.current = navigator.geolocation.watchPosition(
       ({ coords: { latitude: lat, longitude: lng } }) => {
         setUserPosition([lat, lng])
-        setFlyTo({ lat, lng })
+        if (firstFix) {
+          setFlyTo({ lat, lng })
+          firstFix = false
+        }
       },
       () => {}, // silencieux si permission refusée
-      { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
     )
   }
 
@@ -123,6 +134,12 @@ export default function MapView({ commercial, onSwitch }) {
   const handleLocateMe = async () => {
     if (!navigator.geolocation) return toast.error('Géolocalisation non disponible sur cet appareil')
 
+    // Si la position est déjà connue (watchPosition en cours), centrer simplement la carte
+    if (userPosition) {
+      setFlyTo({ lat: userPosition[0], lng: userPosition[1] })
+      return
+    }
+
     // Vérification de la permission si l'API est disponible (pas sur iOS Safari)
     if (navigator.permissions?.query) {
       try {
@@ -131,29 +148,9 @@ export default function MapView({ commercial, onSwitch }) {
       } catch {}
     }
 
-    toast.loading('Recherche de votre position…', { id: 'locate' })
-
-    const onSuccess = ({ coords: { latitude: lat, longitude: lng } }) => {
-      setUserPosition([lat, lng])
-      setFlyTo({ lat, lng })
-      toast.success('Position trouvée !', { id: 'locate' })
-    }
-
-    const onError = (err) => {
-      if (err.code === 1) {
-        toast.dismiss('locate')
-        setShowLocationHelp(true)
-        return
-      }
-      // Code 2 (indisponible) ou 3 (timeout) → fallback réseau/WiFi
-      navigator.geolocation.getCurrentPosition(
-        onSuccess,
-        () => toast.error('Position introuvable — réessayez en extérieur ou activez le WiFi', { id: 'locate' }),
-        { enableHighAccuracy: false, timeout: 20000, maximumAge: 120000 }
-      )
-    }
-
-    navigator.geolocation.getCurrentPosition(onSuccess, onError, { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 })
+    // Démarrer le tracking continu (watchPosition), il mettra à jour userPosition et fera le flyTo initial
+    startTracking()
+    toast.success('Localisation activée !', { id: 'locate' })
   }
 
   const handleAddHere = () => {
