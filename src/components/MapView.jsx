@@ -167,32 +167,64 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         return next
       })
     }
-    if (sitesData) setSites(sitesData.filter(s => !s.deleted))
+    if (sitesData) {
+      const fresh = sitesData.filter(s => !s.deleted)
+      // Préserver les références d'objets pour les sites inchangés :
+      // React.memo sur SiteMarker évite ainsi de re-peindre toute la carte
+      // à chaque polling de 15s si aucune donnée n'a changé.
+      setSites(prev => {
+        const prevMap = new Map(prev.map(s => [s.id, s]))
+        return fresh.map(s => {
+          const p = prevMap.get(s.id)
+          return (p && p.updated_at === s.updated_at) ? p : s
+        })
+      })
+    }
   }, [])
 
   const setupRealtime = useCallback(() => {
-    const ch = supabase
-      .channel('gnc-realtime-v3')
-      // Mises à jour incrémentales : pas de loadAll() sur chaque événement,
-      // on met à jour uniquement la ligne concernée dans le state local.
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sites' }, ({ new: site }) => {
-        if (!site.deleted) {
-          setSites(prev => prev.some(s => s.id === site.id) ? prev : [site, ...prev])
-        }
-      })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'sites' }, ({ new: site }) => {
-        setSites(prev =>
-          site.deleted
-            ? prev.filter(s => s.id !== site.id)
-            : prev.map(s => s.id === site.id ? { ...s, ...site } : s)
-        )
-      })
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'sites' }, ({ old }) => {
-        setSites(prev => prev.filter(s => s.id !== old.id))
-      })
-      .subscribe()
-    return () => supabase.removeChannel(ch)
-  }, [])
+    let channel = null
+    let reconnectTimer = null
+
+    const connect = () => {
+      channel = supabase
+        .channel('gnc-realtime-v3')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'sites' }, ({ eventType, new: newRow, old: oldRow }) => {
+          if (eventType === 'INSERT') {
+            if (!newRow.deleted) setSites(prev => prev.some(s => s.id === newRow.id) ? prev : [newRow, ...prev])
+          } else if (eventType === 'UPDATE') {
+            setSites(prev => newRow.deleted
+              ? prev.filter(s => s.id !== newRow.id)
+              : prev.map(s => s.id === newRow.id ? { ...s, ...newRow } : s)
+            )
+          } else if (eventType === 'DELETE') {
+            setSites(prev => prev.filter(s => s.id !== oldRow?.id))
+          }
+        })
+        .subscribe((status) => {
+          // Reconnexion automatique si la connexion WebSocket tombe
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            clearTimeout(reconnectTimer)
+            reconnectTimer = setTimeout(() => {
+              if (channel) supabase.removeChannel(channel)
+              connect()
+            }, 3000)
+          }
+        })
+    }
+
+    connect()
+
+    // Polling toutes les 15s : filet de sécurité si un événement Realtime est manqué.
+    // loadAll() préserve les références d'objets inchangés → pas de re-render inutile.
+    const poll = setInterval(loadAll, 15_000)
+
+    return () => {
+      clearTimeout(reconnectTimer)
+      clearInterval(poll)
+      if (channel) supabase.removeChannel(channel)
+    }
+  }, [loadAll])
 
   useEffect(() => {
     if (!pendingSiteIdRef.current || sites.length === 0) return
@@ -206,13 +238,17 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
 
   // Synchronise le panneau ouvert avec les mises à jour temps réel.
   // Si quelqu'un d'autre modifie le site affiché, le panneau se met à jour automatiquement.
-  // Si le site est supprimé, le panneau se ferme.
+  // Si le site est supprimé à distance, prévient l'utilisateur et ferme le panneau.
   useEffect(() => {
     const cur = selectedSiteRef.current
     if (!cur) return
     const updated = sites.find(s => s.id === cur.id)
-    if (!updated) setSelectedSite(null)
-    else if (updated !== cur) setSelectedSite(updated)
+    if (!updated) {
+      toast.error('Ce site a été supprimé par un autre utilisateur', { id: 'site-deleted' })
+      setSelectedSite(null)
+    } else if (updated !== cur) {
+      setSelectedSite(updated)
+    }
   }, [sites])
 
   const colorMap = useMemo(() => {

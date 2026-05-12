@@ -396,9 +396,7 @@ export default function SiteDetailPanel({ site, commercial, currentCommercial, c
                     <span className="text-xs font-semibold text-gray-700">{report.commercials?.name}</span>
                     <div className="flex items-center gap-2">
                       <span className="text-[11px] text-gray-400">{fmt(report.created_at)}</span>
-                      {report.commercial_id === currentCommercialId && (
-                        <button onClick={() => handleDeleteReport(report.id)} className="text-red-400 hover:text-red-600 font-bold text-sm">×</button>
-                      )}
+                      <button onClick={() => handleDeleteReport(report.id)} className="text-red-400 hover:text-red-600 font-bold text-sm">×</button>
                     </div>
                   </div>
                   <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">{report.content}</p>
