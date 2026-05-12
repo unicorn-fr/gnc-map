@@ -177,10 +177,12 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     )
 
-    const { title, body: bodyText, url = '/' } = await req.json()
-    const payloadStr = JSON.stringify({ title, body: bodyText, url, tag: 'gnc-update' })
+    const { title, body: bodyText, url = '/', skipCommercialId = null } = await req.json()
+    const payloadStr = JSON.stringify({ title, body: bodyText, url })
 
-    const { data: subs } = await admin.from('push_subscriptions').select('endpoint, auth, p256dh')
+    let query = admin.from('push_subscriptions').select('endpoint, auth, p256dh')
+    if (skipCommercialId) query = query.neq('commercial_id', skipCommercialId)
+    const { data: subs } = await query
     if (!subs?.length) return new Response('no subscribers', { headers: corsHeaders })
 
     const expired: string[] = []

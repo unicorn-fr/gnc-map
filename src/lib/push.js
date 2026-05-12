@@ -20,56 +20,67 @@ export async function registerSW() {
 }
 
 export async function requestAndSubscribe(commercialId) {
-  if (!('Notification' in window) || !('PushManager' in window)) {
-    console.warn('[push] Push API not supported on this browser')
-    return
-  }
+  if (!('Notification' in window) || !('PushManager' in window)) return
   if (!VAPID_PUBLIC_KEY) {
-    console.error('[push] VITE_VAPID_PUBLIC_KEY is not set in .env — push disabled')
+    console.error('[push] VITE_VAPID_PUBLIC_KEY manquante')
     return
   }
 
   const perm = Notification.permission === 'granted'
     ? 'granted'
     : await Notification.requestPermission()
-  if (perm !== 'granted') {
-    console.warn('[push] Notification permission denied')
-    return
-  }
+  if (perm !== 'granted') return
 
   try {
     const reg = await navigator.serviceWorker.ready
     let sub = await reg.pushManager.getSubscription()
+
+    // Si la clé VAPID a changé (ex: après une regénération), l'ancien abonnement
+    // est invalide → forcer une réinscription avec la nouvelle clé.
+    if (sub) {
+      const currentKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+      const existingKey = sub.options?.applicationServerKey
+        ? new Uint8Array(sub.options.applicationServerKey)
+        : null
+      const stale = !existingKey || currentKey.length !== existingKey.length ||
+        currentKey.some((b, i) => b !== existingKey[i])
+      if (stale) {
+        await sub.unsubscribe()
+        sub = null
+        console.info('[push] Ancienne clé VAPID détectée → réinscription')
+      }
+    }
+
     if (!sub) {
       sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
       })
-      console.info('[push] New push subscription created')
-    } else {
-      console.info('[push] Existing push subscription found')
+      console.info('[push] Nouvel abonnement push créé')
     }
+
     const { endpoint, keys } = sub.toJSON()
     const { error } = await supabase.from('push_subscriptions').upsert(
       { endpoint, auth: keys.auth, p256dh: keys.p256dh, commercial_id: commercialId },
       { onConflict: 'endpoint' }
     )
-    if (error) console.error('[push] Failed to save subscription to DB:', error)
-    else console.info('[push] Subscription saved to DB ✓')
+    if (error) console.error('[push] Erreur sauvegarde abonnement:', error)
+    else console.info('[push] Abonnement sauvegardé ✓')
   } catch (e) {
     console.error('[push] Subscribe error:', e)
   }
 }
 
-export async function sendPushToAll(title, body, url = '/') {
-  if (!VAPID_PUBLIC_KEY) return  // push not configured, skip silently
+// skipCommercialId : ne pas notifier le commercial qui fait l'action
+export async function sendPushToAll(title, body, url = '/', skipCommercialId = null) {
+  if (!VAPID_PUBLIC_KEY) return
   try {
-    const { error, data } = await supabase.functions.invoke('send-push', {
-      body: { title, body, url },
+    const { error } = await supabase.functions.invoke('send-push', {
+      body: { title, body, url, skipCommercialId },
     })
     if (error) console.error('[push] Edge function error:', error)
-    else console.info('[push] Sent:', data)
   } catch (e) {
     console.error('[push] sendPushToAll error:', e)
   }
 }
+
