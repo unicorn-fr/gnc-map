@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { X, Edit2, Trash2, Camera, Loader2, Phone, Mail, MapPin } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { compressImage } from '../lib/compressImage'
 import { sendPushToAll } from '../lib/push'
 import { firstName } from '../lib/utils'
 import toast from 'react-hot-toast'
@@ -11,24 +12,6 @@ const STATUS = {
   en_cours: { label: 'En cours', cls: 'bg-blue-100 text-blue-800' },
   termine:  { label: 'Terminé',  cls: 'bg-gray-100 text-gray-600' },
 }
-
-const compressImage = (file) =>
-  new Promise((resolve) => {
-    const canvas = document.createElement('canvas')
-    const ctx = canvas.getContext('2d')
-    const img = new Image()
-    img.onload = () => {
-      const ratio = Math.min(1400 / img.width, 1400 / img.height, 1)
-      canvas.width = Math.round(img.width * ratio)
-      canvas.height = Math.round(img.height * ratio)
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-      canvas.toBlob(
-        (blob) => resolve(new File([blob], file.name, { type: 'image/jpeg' })),
-        'image/jpeg', 0.82
-      )
-    }
-    img.src = URL.createObjectURL(file)
-  })
 
 const fmt = (iso) =>
   new Date(iso).toLocaleString('fr-FR', {
