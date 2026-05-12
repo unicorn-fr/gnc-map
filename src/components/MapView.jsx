@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo, memo } from 'react'
-import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet'
-import L from 'leaflet'
+import Map, { Marker } from 'react-map-gl/maplibre'
+import 'maplibre-gl/dist/maplibre-gl.css'
 import { Menu, Plus, Navigation, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { requestAndSubscribe } from '../lib/push'
@@ -13,59 +13,38 @@ import ReportsPage from './ReportsPage'
 import InstallBanner from './InstallBanner'
 import toast from 'react-hot-toast'
 
-delete L.Icon.Default.prototype._getIconUrl
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-})
+const STREET_STYLE = 'https://tiles.openfreemap.org/styles/liberty'
 
-const createSiteIcon = (color, type) =>
-  L.divIcon({
-    className: '',
-    html: `<div class="site-pin-wrap" style="background:${color}"><span class="site-pin-emoji">${type === 'siege' ? '🏢' : '🏗️'}</span></div>`,
-    iconSize: [34, 34],
-    iconAnchor: [17, 34],
-    popupAnchor: [0, -38],
-  })
-
-const createUserIcon = (color) =>
-  L.divIcon({
-    className: '',
-    html: `<div style="width:18px;height:18px;border-radius:50%;background:${color};border:3px solid white;box-shadow:0 0 0 4px ${color}44;"></div>`,
-    iconSize: [18, 18],
-    iconAnchor: [9, 9],
-  })
-
-// Composant marqueur mémoïsé : ne re-render que si le site ou la couleur change.
-// Sans memo, createSiteIcon recrée un L.divIcon à chaque render global,
-// ce qui force Leaflet à re-peindre TOUS les marqueurs dans le DOM.
-const SiteMarker = memo(function SiteMarker({ site, color, onSelect }) {
-  const icon = useMemo(() => createSiteIcon(color, site.type), [color, site.type])
-  const handlers = useMemo(() => ({
-    click: (e) => { L.DomEvent.stopPropagation(e); onSelect(site) },
-  }), [site, onSelect])
-  return <Marker position={[site.lat, site.lng]} icon={icon} eventHandlers={handlers} />
-})
-
-function MapInteraction({ onMapClick, flyTo, onFlyToDone }) {
-  const map = useMap()
-
-  useMapEvents({
-    click(e) {
-      onMapClick({ lat: e.latlng.lat, lng: e.latlng.lng })
+const SATELLITE_STYLE = {
+  version: 8,
+  sources: {
+    sat: {
+      type: 'raster',
+      tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+      tileSize: 256,
+      attribution: 'Tiles © Esri',
     },
-  })
-
-  useEffect(() => {
-    if (flyTo) {
-      map.flyTo([flyTo.lat, flyTo.lng], 15, { duration: 1.2 })
-      onFlyToDone()
-    }
-  }, [flyTo, map, onFlyToDone])
-
-  return null
+  },
+  layers: [
+    { id: 'bg', type: 'background', paint: { 'background-color': '#e8e0d5' } },
+    { id: 'sat', type: 'raster', source: 'sat' },
+  ],
 }
+
+const SiteMarker = memo(function SiteMarker({ site, color, onSelect }) {
+  return (
+    <Marker
+      longitude={site.lng}
+      latitude={site.lat}
+      anchor="bottom"
+      onClick={(e) => { e.originalEvent.stopPropagation(); onSelect(site) }}
+    >
+      <div className="site-pin-wrap" style={{ background: color }}>
+        <span className="site-pin-emoji">{site.type === 'siege' ? '🏢' : '🏗️'}</span>
+      </div>
+    </Marker>
+  )
+})
 
 export default function MapView({ commercial, onSwitch, installPrompt, onInstalled }) {
   const [allCommercials, setAllCommercials] = useState([])
@@ -82,6 +61,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
   const [visibleTypes, setVisibleTypes] = useState(new Set(['siege', 'chantier']))
   const [flyTo, setFlyTo] = useState(null)
   const [mapStyle, setMapStyle] = useState('street')
+  const mapRef = useRef(null)
   const watchIdRef = useRef(null)
   const pendingSiteIdRef = useRef(null)
   const selectedSiteRef = useRef(null)
@@ -102,15 +82,11 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
     const timer = setTimeout(startTracking, 1200)
     requestAndSubscribe(commercial.id)
 
-    // Rafraîchir les données quand l'app revient au premier plan
     const handleVisible = () => {
       if (document.visibilityState === 'visible') loadAll()
     }
     document.addEventListener('visibilitychange', handleVisible)
 
-    // Ouvrir le panneau du site quand une notification est cliquée avec l'app déjà ouverte.
-    // Le SW envoie { type: 'OPEN_URL', url } au lieu de naviguer, car navigate()
-    // ne déclenche pas les useEffect React déjà montés.
     const handleSWMessage = (event) => {
       if (event.data?.type !== 'OPEN_URL') return
       try {
@@ -132,11 +108,15 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
       clearTimeout(timer)
       document.removeEventListener('visibilitychange', handleVisible)
       navigator.serviceWorker?.removeEventListener('message', handleSWMessage)
-      if (watchIdRef.current !== null) {
-        navigator.geolocation.clearWatch(watchIdRef.current)
-      }
+      if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current)
     }
   }, [])
+
+  useEffect(() => {
+    if (!flyTo || !mapRef.current) return
+    mapRef.current.flyTo({ center: [flyTo.lng, flyTo.lat], zoom: 15, duration: 1200 })
+    setFlyTo(null)
+  }, [flyTo])
 
   const startTracking = () => {
     if (!navigator.geolocation || watchIdRef.current !== null) return
@@ -144,12 +124,9 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
     watchIdRef.current = navigator.geolocation.watchPosition(
       ({ coords: { latitude: lat, longitude: lng } }) => {
         setUserPosition([lat, lng])
-        if (firstFix) {
-          setFlyTo({ lat, lng })
-          firstFix = false
-        }
+        if (firstFix) { setFlyTo({ lat, lng }); firstFix = false }
       },
-      () => {}, // silencieux si permission refusée
+      () => {},
       { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
     )
   }
@@ -170,9 +147,6 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
     }
     if (sitesData) {
       const fresh = sitesData.filter(s => !s.deleted)
-      // Préserver les références d'objets pour les sites inchangés :
-      // React.memo sur SiteMarker évite ainsi de re-peindre toute la carte
-      // à chaque polling de 15s si aucune donnée n'a changé.
       setSites(prev => {
         const prevMap = new Map(prev.map(s => [s.id, s]))
         return fresh.map(s => {
@@ -203,7 +177,6 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           }
         })
         .subscribe((status) => {
-          // Reconnexion automatique si la connexion WebSocket tombe
           if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
             clearTimeout(reconnectTimer)
             reconnectTimer = setTimeout(() => {
@@ -215,11 +188,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
     }
 
     connect()
-
-    // Polling toutes les 15s : filet de sécurité si un événement Realtime est manqué.
-    // loadAll() préserve les références d'objets inchangés → pas de re-render inutile.
     const poll = setInterval(loadAll, 15_000)
-
     return () => {
       clearTimeout(reconnectTimer)
       clearInterval(poll)
@@ -237,9 +206,6 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
     }
   }, [sites])
 
-  // Synchronise le panneau ouvert avec les mises à jour temps réel.
-  // Si quelqu'un d'autre modifie le site affiché, le panneau se met à jour automatiquement.
-  // Si le site est supprimé à distance, prévient l'utilisateur et ferme le panneau.
   useEffect(() => {
     const cur = selectedSiteRef.current
     if (!cur) return
@@ -259,56 +225,40 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
   }, [allCommercials])
 
   const getColor = useCallback((id) => colorMap[id] ?? '#6B7280', [colorMap])
-
   const handleSelectSite = useCallback((site) => setSelectedSite(site), [])
-  const handleFlyToDone = useCallback(() => setFlyTo(null), [])
 
   const handleLocateMe = async () => {
     if (!navigator.geolocation) return toast.error('Géolocalisation non disponible sur cet appareil')
-
-    // Si la position est déjà connue (watchPosition en cours), centrer simplement la carte
-    if (userPosition) {
-      setFlyTo({ lat: userPosition[0], lng: userPosition[1] })
-      return
-    }
-
-    // Vérification de la permission si l'API est disponible (pas sur iOS Safari)
+    if (userPosition) { setFlyTo({ lat: userPosition[0], lng: userPosition[1] }); return }
     if (navigator.permissions?.query) {
       try {
         const perm = await navigator.permissions.query({ name: 'geolocation' })
         if (perm.state === 'denied') { setShowLocationHelp(true); return }
       } catch {}
     }
-
-    // Démarrer le tracking continu (watchPosition), il mettra à jour userPosition et fera le flyTo initial
     startTracking()
     toast.success('Localisation activée !', { id: 'locate' })
   }
 
   const handleAddHere = () => {
-    // Ouvrir le modal immédiatement, sans bloquer sur la géolocalisation
     setAddPosition(null)
     setShowAddModal(true)
-
-    // Tenter la géolocalisation en arrière-plan pour pré-remplir la position
     if (!navigator.geolocation) return
     navigator.geolocation.getCurrentPosition(
       ({ coords: { latitude: lat, longitude: lng } }) => {
         setUserPosition([lat, lng])
         setAddPosition({ lat, lng })
       },
-      () => {}, // ignorer silencieusement si refusée/timeout
+      () => {},
       { enableHighAccuracy: true, timeout: 8000 }
     )
   }
 
-  const handleMapClick = (pos) => {
-    // Désactiver le clic-carte sur mobile : évite d'ouvrir le modal
-    // en voulant simplement naviguer / après avoir tapé un marqueur
+  const handleMapClick = useCallback((e) => {
     if (window.matchMedia('(max-width: 640px)').matches || 'ontouchstart' in window) return
-    setAddPosition(pos)
+    setAddPosition({ lat: e.lngLat.lat, lng: e.lngLat.lng })
     setShowAddModal(true)
-  }
+  }, [])
 
   const filtered = useMemo(() =>
     sites.filter(s => s.lat && s.lng && visibleCommercials.has(s.commercial_id) && visibleTypes.has(s.type)),
@@ -336,7 +286,6 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
   }
 
   return (
-    // h-dvh = hauteur réelle sur mobile (tient compte de la barre d'adresse du navigateur)
     <div style={{ height: '100dvh' }} className="flex flex-col">
 
       {/* Barre du haut */}
@@ -350,7 +299,6 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         <button
           onClick={onSwitch}
           className="flex items-center gap-2 bg-white/10 hover:bg-white/20 rounded-xl px-3 py-1.5 transition-colors"
-          title="Changer de commercial"
         >
           <div
             className="w-6 h-6 rounded-lg flex items-center justify-center text-white font-bold text-xs flex-shrink-0"
@@ -364,10 +312,8 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         </button>
       </div>
 
-      {/* Zone carte */}
       <div className="flex-1 relative" style={{ minHeight: 0 }}>
 
-        {/* Overlay sidebar */}
         {showSidebar && (
           <div className="absolute inset-0 flex" style={{ zIndex: 1200 }}>
             <Sidebar
@@ -392,7 +338,6 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           </div>
         )}
 
-        {/* Modal aide localisation */}
         {showLocationHelp && (
           <div className="absolute inset-0 flex items-end justify-center p-4 pb-8" style={{ zIndex: 2000, background: 'rgba(0,0,0,0.5)' }}>
             <div className="bg-white rounded-3xl shadow-2xl p-5 w-full max-w-sm">
@@ -402,13 +347,10 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
                   <X size={18} className="text-gray-400" />
                 </button>
               </div>
-              <p className="text-sm text-gray-600 mb-3">
-                Votre navigateur bloque la localisation. Pour l'activer :
-              </p>
+              <p className="text-sm text-gray-600 mb-3">Votre navigateur bloque la localisation. Pour l'activer :</p>
               <ol className="text-sm text-gray-700 space-y-2 mb-4 list-decimal ml-4">
                 <li><strong>iPhone / iPad :</strong> Réglages → Confidentialité → Service de localisation → Safari → Autoriser</li>
                 <li><strong>Android Chrome :</strong> Appuyer sur 🔒 dans la barre d'adresse → Autorisation du site → Position</li>
-                <li><strong>Ordinateur :</strong> Cliquer sur 🔒 dans la barre d'adresse et autoriser la localisation</li>
               </ol>
               <button
                 onClick={() => { setShowLocationHelp(false); setTimeout(handleLocateMe, 200) }}
@@ -416,63 +358,31 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
               >
                 Réessayer
               </button>
-              <button onClick={() => setShowLocationHelp(false)} className="w-full py-2 text-gray-400 text-sm">
-                Fermer
-              </button>
+              <button onClick={() => setShowLocationHelp(false)} className="w-full py-2 text-gray-400 text-sm">Fermer</button>
             </div>
           </div>
         )}
 
-        {/* Carte Leaflet */}
-        <MapContainer
-          center={[48.8566, 2.3522]}
-          zoom={6}
-          style={{ height: '100%', width: '100%' }}
-          zoomControl={false}
-          tap={false}
-          preferCanvas={true}
-          zoomSnap={0}
-          zoomDelta={1}
-          wheelPxPerZoomLevel={60}
-          inertia={true}
-          inertiaDeceleration={1600}
-          inertiaMaxSpeed={2000}
-          easeLinearity={0.15}
-          bounceAtZoomLimits={false}
+        {/* Carte MapLibre GL — rendu WebGL, fluide comme Google Maps */}
+        <Map
+          ref={mapRef}
+          initialViewState={{ longitude: 2.3522, latitude: 48.8566, zoom: 6 }}
+          style={{ width: '100%', height: '100%' }}
+          mapStyle={mapStyle === 'satellite' ? SATELLITE_STYLE : STREET_STYLE}
+          onClick={handleMapClick}
+          attributionControl={false}
+          pitchWithRotate={false}
+          dragRotate={false}
         >
-          <TileLayer
-            url={mapStyle === 'satellite'
-              ? "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-              : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"}
-            attribution={mapStyle === 'satellite'
-              ? 'Tiles &copy; Esri'
-              : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}
-            subdomains={mapStyle === 'satellite' ? '' : 'abc'}
-            keepBuffer={12}
-            updateWhenIdle={false}
-            updateWhenZooming={false}
-            crossOrigin={true}
-            maxNativeZoom={18}
-            maxZoom={19}
-          />
-          {mapStyle === 'satellite' && (
-            <TileLayer
-              url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png"
-              subdomains="abcd"
-              opacity={0.85}
-              keepBuffer={12}
-              updateWhenIdle={false}
-              updateWhenZooming={false}
-              crossOrigin={true}
-            />
-          )}
-          <MapInteraction
-            onMapClick={handleMapClick}
-            flyTo={flyTo}
-            onFlyToDone={handleFlyToDone}
-          />
           {userPosition && (
-            <Marker position={userPosition} icon={createUserIcon(commercial.color)} />
+            <Marker longitude={userPosition[1]} latitude={userPosition[0]} anchor="center">
+              <div style={{
+                width: 18, height: 18, borderRadius: '50%',
+                background: commercial.color,
+                border: '3px solid white',
+                boxShadow: `0 0 0 4px ${commercial.color}44`,
+              }} />
+            </Marker>
           )}
           {filtered.map(site => (
             <SiteMarker
@@ -482,30 +392,23 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
               onSelect={handleSelectSite}
             />
           ))}
-        </MapContainer>
+        </Map>
 
-        {/* Boutons flottants — z-index élevé pour passer au-dessus de Leaflet */}
-        <div
-          className="absolute bottom-6 right-4 flex flex-col gap-3"
-          style={{ zIndex: 1000 }}
-        >
+        <div className="absolute bottom-6 right-4 flex flex-col gap-3" style={{ zIndex: 1000 }}>
           <button
             onClick={handleLocateMe}
             className="w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center text-blue-800 hover:bg-blue-50 active:scale-95 transition-all"
-            aria-label="Ma position"
           >
             <Navigation size={20} />
           </button>
           <button
             onClick={handleAddHere}
             className="w-16 h-16 bg-blue-700 rounded-full shadow-xl flex items-center justify-center text-white hover:bg-blue-800 active:scale-95 transition-all"
-            aria-label="Ajouter un site à ma position"
           >
             <Plus size={30} />
           </button>
         </div>
 
-        {/* Légende + toggle satellite */}
         <div
           className="absolute bottom-6 left-4 bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg p-3 text-xs text-gray-700 space-y-2 max-w-44"
           style={{ zIndex: 1000 }}
@@ -535,7 +438,6 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           </button>
         </div>
 
-        {/* Panneau détail site — w-full sur mobile, 384px sur desktop */}
         {selectedSite && (
           <div className="absolute inset-y-0 right-0 w-full sm:w-96" style={{ zIndex: 1050 }}>
             <SiteDetailPanel
@@ -556,7 +458,6 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         )}
       </div>
 
-      {/* Modal ajout site */}
       {showAddModal && (
         <AddSiteModal
           position={addPosition}

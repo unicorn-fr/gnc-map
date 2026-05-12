@@ -1,4 +1,4 @@
-@import 'leaflet/dist/leaflet.css';
+@import 'maplibre-gl/dist/maplibre-gl.css';
 
 @tailwind base;
 @tailwind components;
@@ -12,31 +12,13 @@ html, body, #root {
   overflow: hidden;
 }
 
-.leaflet-container {
-  height: 100%;
-  width: 100%;
+.maplibregl-map {
   font-family: inherit;
-  background: #e8e0d5;
-  touch-action: none;
-  -webkit-user-select: none;
-  user-select: none;
 }
 
-/* Tiles fade in smoothly instead of popping in as gray squares */
-.leaflet-tile {
-  transition: opacity 0.1s ease-in;
-}
-.leaflet-tile-container {
-  will-change: transform;
-}
-
-/* Zoom animation aussi fluide que possible */
-.leaflet-zoom-animated {
-  will-change: transform;
-}
-
-.leaflet-proxy.leaflet-zoom-animated {
-  will-change: transform;
+.maplibregl-ctrl-attrib,
+.maplibregl-ctrl-logo {
+  display: none !important;
 }
 
 /* Custom pin marker */
