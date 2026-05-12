@@ -57,9 +57,14 @@ function SetupError() {
 export default function App() {
   const [commercial, setCommercial] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [installPrompt, setInstallPrompt] = useState(null)
   const heartbeatRef = useRef(null)
 
   useEffect(() => {
+    // Capturer l'événement d'installation PWA avant qu'il ne soit auto-masqué
+    const handler = (e) => { e.preventDefault(); setInstallPrompt(e) }
+    window.addEventListener('beforeinstallprompt', handler)
+
     if (isMisconfigured) { setLoading(false); return }
 
     const saved = localStorage.getItem('gnc_commercial')
@@ -86,7 +91,10 @@ export default function App() {
       setLoading(false)
     }
 
-    return () => stopHeartbeat()
+    return () => {
+      stopHeartbeat()
+      window.removeEventListener('beforeinstallprompt', handler)
+    }
   }, [])
 
   const startHeartbeat = (commercialId) => {
@@ -129,8 +137,8 @@ export default function App() {
         toastOptions={{ duration: 3000, style: { borderRadius: '12px', fontSize: '14px' } }}
       />
       {commercial
-        ? <MapView commercial={commercial} onSwitch={handleSwitch} />
-        : <CommercialPicker onSelect={handleSelect} />
+        ? <MapView commercial={commercial} onSwitch={handleSwitch} installPrompt={installPrompt} onInstalled={() => setInstallPrompt(null)} />
+        : <CommercialPicker onSelect={handleSelect} installPrompt={installPrompt} onInstalled={() => setInstallPrompt(null)} />
       }
     </>
   )

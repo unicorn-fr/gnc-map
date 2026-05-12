@@ -67,6 +67,7 @@ export default function ImportPage({ commercials, onClose, onImported }) {
   const [confirmDelete, setConfirmDelete] = useState(null)
   const [confirmResetAll, setConfirmResetAll] = useState(false)
   const [isResetting, setIsResetting] = useState(false)
+  const [siteStats, setSiteStats] = useState([]) // [{ commercial_id, name, color, chantier, siege }]
   const [isRegeocing, setIsRegeocing] = useState(false)
   const [regeoProgress, setRegeoProgress] = useState(null) // { current, total, fixed }
   const [regeoMode, setRegeoMode] = useState('missing') // 'missing' | 'all'
@@ -74,7 +75,26 @@ export default function ImportPage({ commercials, onClose, onImported }) {
 
   useEffect(() => {
     loadHistory()
+    loadStats()
   }, [])
+
+  const loadStats = async () => {
+    const { data } = await supabase
+      .from('sites')
+      .select('commercial_id, type')
+      .eq('deleted', false)
+    if (!data) return
+    const map = {}
+    for (const s of data) {
+      if (!map[s.commercial_id]) map[s.commercial_id] = { chantier: 0, siege: 0 }
+      map[s.commercial_id][s.type] = (map[s.commercial_id][s.type] ?? 0) + 1
+    }
+    setSiteStats(
+      commercials
+        .filter(c => map[c.id])
+        .map(c => ({ ...c, chantier: map[c.id].chantier ?? 0, siege: map[c.id].siege ?? 0 }))
+    )
+  }
 
   const loadHistory = async () => {
     const { data } = await supabase
@@ -93,7 +113,7 @@ export default function ImportPage({ commercials, onClose, onImported }) {
       await supabase.from('sites').delete().eq('import_log_id', log.id)
       await supabase.from('import_logs').delete().eq('id', log.id)
       toast.success(`Import "${log.filename}" supprimé`)
-      await loadHistory()
+      await Promise.all([loadHistory(), loadStats()])
       onImported()
     } catch (e) {
       toast.error('Erreur lors de la suppression')
@@ -110,7 +130,7 @@ export default function ImportPage({ commercials, onClose, onImported }) {
       await supabase.from('sites').delete().neq('id', '00000000-0000-0000-0000-000000000000')
       await supabase.from('import_logs').delete().neq('id', '00000000-0000-0000-0000-000000000000')
       toast.success('Tous les sites ont été supprimés')
-      await loadHistory()
+      await Promise.all([loadHistory(), loadStats()])
       onImported()
     } catch (e) {
       toast.error('Erreur lors de la réinitialisation')
@@ -426,6 +446,34 @@ export default function ImportPage({ commercials, onClose, onImported }) {
         {/* ── STEP 0 : Choix du commercial + Upload ── */}
         {step === 0 && (
           <div className="p-6 max-w-xl mx-auto">
+
+            {/* Stats par commercial */}
+            {siteStats.length > 0 && (
+              <div className="mb-6">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Sites sur la carte</p>
+                <div className="grid grid-cols-1 gap-2">
+                  {siteStats.map(c => (
+                    <div key={c.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm px-4 py-3 flex items-center gap-3">
+                      <div
+                        className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-extrabold text-base flex-shrink-0"
+                        style={{ background: c.color }}
+                      >
+                        {c.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-sm text-gray-800">{c.name}</p>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          {c.chantier + c.siege} sites · {c.chantier} chantier{c.chantier !== 1 ? 's' : ''} · {c.siege} siège{c.siege !== 1 ? 's' : ''}
+                        </p>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <p className="text-2xl font-extrabold" style={{ color: c.color }}>{c.chantier + c.siege}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Sélecteur de commercial */}
             <div className="mb-6">
