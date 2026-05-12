@@ -69,6 +69,7 @@ export default function ImportPage({ commercials, onClose, onImported }) {
   const [isResetting, setIsResetting] = useState(false)
   const [isRegeocing, setIsRegeocing] = useState(false)
   const [regeoProgress, setRegeoProgress] = useState(null) // { current, total, fixed }
+  const [regeoMode, setRegeoMode] = useState('missing') // 'missing' | 'all'
   const fileRef = useRef()
 
   useEffect(() => {
@@ -118,39 +119,57 @@ export default function ImportPage({ commercials, onClose, onImported }) {
     }
   }
 
-  // ── Re-géocodage des sites sans coordonnées ──────────────────
-  const handleReGeocode = async () => {
+  // ── Re-géocodage ─────────────────────────────────────────────
+  const handleReGeocode = async (mode) => {
+    setRegeoMode(mode)
     setIsRegeocing(true)
     setRegeoProgress({ current: 0, total: 0, fixed: 0 })
     try {
-      // Récupérer tous les sites sans coordonnées GPS (lat IS NULL)
-      const { data: missing } = await supabase
+      let query = supabase
         .from('sites')
         .select('id, address, postcode, city')
-        .is('lat', null)
         .eq('deleted', false)
+        .or('address.neq.,city.neq.')  // au moins une adresse ou une ville
 
-      if (!missing?.length) {
-        toast.success('Tous les sites ont déjà des coordonnées GPS !')
+      if (mode === 'missing') {
+        query = query.is('lat', null)
+      }
+      // mode === 'all' : tous les sites avec une adresse
+
+      const { data: sites } = await query
+
+      if (!sites?.length) {
+        toast.success(mode === 'missing'
+          ? 'Tous les sites ont déjà des coordonnées GPS !'
+          : 'Aucun site avec adresse trouvé.')
         setRegeoProgress(null)
         setIsRegeocing(false)
         return
       }
 
-      setRegeoProgress({ current: 0, total: missing.length, fixed: 0 })
+      setRegeoProgress({ current: 0, total: sites.length, fixed: 0 })
       let fixed = 0
 
-      for (let i = 0; i < missing.length; i++) {
-        const site = missing[i]
-        const geo = await geocodeSmart(site.address ?? '', site.postcode ?? '', site.city ?? '')
+      for (let i = 0; i < sites.length; i++) {
+        const site = sites[i]
+        const geo = await geocodeSmart(
+          site.address ?? '',
+          site.postcode ?? '',
+          site.city ?? ''
+        )
         if (geo) {
-          await supabase.from('sites').update({ lat: geo.lat, lng: geo.lng }).eq('id', site.id)
+          await supabase.from('sites')
+            .update({ lat: geo.lat, lng: geo.lng })
+            .eq('id', site.id)
           fixed++
+        } else if (mode === 'all') {
+          // En mode "tout", effacer les mauvaises coordonnées si on ne trouve pas mieux
+          // (on garde les anciennes pour ne pas supprimer ce qui marchait)
         }
-        setRegeoProgress({ current: i + 1, total: missing.length, fixed })
+        setRegeoProgress({ current: i + 1, total: sites.length, fixed })
       }
 
-      toast.success(`Re-géocodage terminé : ${fixed} / ${missing.length} site(s) placés sur la carte`)
+      toast.success(`Re-géocodage terminé : ${fixed} / ${sites.length} site(s) correctement placés`)
       onImported()
     } catch (e) {
       toast.error('Erreur lors du re-géocodage')
@@ -485,31 +504,46 @@ export default function ImportPage({ commercials, onClose, onImported }) {
             <div className="mt-6 border border-blue-100 rounded-2xl p-4 bg-blue-50">
               <p className="text-xs font-bold text-blue-700 uppercase tracking-wider mb-1">Corriger les emplacements</p>
               <p className="text-xs text-blue-600 mb-3">
-                Relance le géocodage sur tous les sites <strong>sans coordonnées GPS</strong> (points manquants sur la carte),
-                avec 6 stratégies : BAN officielle + Nominatim en fallback.
+                Relance le géocodage avec 6 stratégies (BAN officielle + Nominatim OpenStreetMap).
               </p>
+
               {isRegeocing && regeoProgress ? (
                 <div>
-                  <div className="flex justify-between text-xs text-blue-700 font-semibold mb-1">
+                  <p className="text-xs text-blue-700 font-semibold mb-1">
+                    {regeoMode === 'missing' ? '📍 Sites manquants' : '🔄 Tous les sites'} — re-géocodage en cours…
+                  </p>
+                  <div className="flex justify-between text-xs text-blue-600 mb-1">
                     <span>{regeoProgress.current} / {regeoProgress.total} adresses traitées</span>
-                    <span>{regeoProgress.fixed} placées ✓</span>
+                    <span className="font-bold text-emerald-600">{regeoProgress.fixed} corrigées ✓</span>
                   </div>
-                  <div className="w-full bg-blue-200 rounded-full h-2">
+                  <div className="w-full bg-blue-200 rounded-full h-2.5">
                     <div
-                      className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                      className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
                       style={{ width: `${Math.round((regeoProgress.current / Math.max(regeoProgress.total, 1)) * 100)}%` }}
                     />
                   </div>
+                  <p className="text-[10px] text-blue-400 mt-1">Peut prendre plusieurs minutes selon le nombre de sites</p>
                 </div>
               ) : (
-                <button
-                  onClick={handleReGeocode}
-                  disabled={isRegeocing}
-                  className="w-full py-2.5 border-2 border-blue-300 text-blue-700 font-semibold text-sm rounded-xl hover:bg-blue-100 transition-colors flex items-center justify-center gap-2"
-                >
-                  <Loader2 size={15} className={isRegeocing ? 'animate-spin' : 'hidden'} />
-                  📍 Replacer les sites manquants sur la carte
-                </button>
+                <div className="flex flex-col gap-2">
+                  <button
+                    onClick={() => handleReGeocode('missing')}
+                    disabled={isRegeocing}
+                    className="w-full py-2.5 border-2 border-blue-300 text-blue-700 font-semibold text-sm rounded-xl hover:bg-blue-100 transition-colors flex items-center justify-center gap-2"
+                  >
+                    📍 Placer les sites sans coordonnées GPS
+                  </button>
+                  <button
+                    onClick={() => handleReGeocode('all')}
+                    disabled={isRegeocing}
+                    className="w-full py-2.5 border-2 border-indigo-300 bg-indigo-50 text-indigo-700 font-semibold text-sm rounded-xl hover:bg-indigo-100 transition-colors flex items-center justify-center gap-2"
+                  >
+                    🔄 Recalculer TOUS les emplacements
+                  </button>
+                  <p className="text-[10px] text-blue-400 text-center">
+                    "Recalculer tous" corrige aussi les sites mal placés — prend plus de temps
+                  </p>
+                </div>
               )}
             </div>
 
