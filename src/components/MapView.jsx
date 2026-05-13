@@ -133,13 +133,14 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
     watchIdRef.current = navigator.geolocation.watchPosition(
       ({ coords: { latitude: lat, longitude: lng } }) => {
         setUserPosition([lat, lng])
-        // Sauvegarder la position pour la prochaine ouverture
         localStorage.setItem('gnc_map_view', JSON.stringify({ latitude: lat, longitude: lng, zoom: 14 }))
-        // Voler vers le GPS seulement si pas de position sauvegardée (premier usage)
-        // ou si c'est le premier fix de la session courante sans position sauvegardée
         if (firstFix) {
           firstFix = false
           if (!hasSavedView) setFlyTo({ lat, lng })
+          // Préchauffer les tuiles autour de la position GPS en arrière-plan
+          if (navigator.serviceWorker?.controller) {
+            navigator.serviceWorker.controller.postMessage({ type: 'PREWARM_MAP', lat, lng })
+          }
         }
       },
       () => {},

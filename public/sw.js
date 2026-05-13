@@ -1,5 +1,5 @@
-const CACHE = 'gnc-map-v12'
-const TILE_CACHE = 'gnc-tiles-v6'
+const CACHE = 'gnc-map-v13'
+const TILE_CACHE = 'gnc-tiles-v7'
 const STYLE_CACHE = 'gnc-styles-v1'
 
 self.addEventListener('install', e => {
@@ -17,7 +17,6 @@ self.addEventListener('activate', e => {
 })
 
 // Précharge les 8 tuiles voisines (même zoom, toutes directions) d'une tuile vectorielle.
-// Quand l'utilisateur se déplace, les tuiles adjacentes sont déjà en cache → zéro blanc.
 function prefetchVectorNeighbors(cache, url) {
   const m = url.pathname.match(/\/(\d+)\/(\d+)\/(\d+)\.pbf$/)
   if (!m) return
@@ -56,6 +55,83 @@ function prefetchOsmChildren(cache, url) {
   })
 }
 
+// ── Préchauffage régional ─────────────────────────────────────────
+
+function latLngToTile(lat, lng, z) {
+  const x = Math.floor((lng + 180) / 360 * (1 << z))
+  const latRad = lat * Math.PI / 180
+  const y = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * (1 << z))
+  return { x, y }
+}
+
+// Télécharge en arrière-plan toutes les tuiles vectorielles dans un rayon autour du GPS.
+// Exécuté en mode "idle" — 1 tuile/150 ms max pour ne pas saturer la connexion.
+async function prewarmRegion(cache, lat, lng, tileOrigin, tilePath) {
+  // zoom → rayon en degrés de latitude (approximation rapide : 1° ≈ 111 km)
+  const levels = [
+    { z: 7,  degRadius: 3.0  },
+    { z: 8,  degRadius: 2.0  },
+    { z: 9,  degRadius: 1.5  },
+    { z: 10, degRadius: 1.0  },
+    { z: 11, degRadius: 0.6  },
+    { z: 12, degRadius: 0.35 },
+    { z: 13, degRadius: 0.18 },
+  ]
+
+  for (const { z, degRadius } of levels) {
+    const min = latLngToTile(lat + degRadius, lng - degRadius, z)
+    const max = latLngToTile(lat - degRadius, lng + degRadius, z)
+    const x0 = Math.min(min.x, max.x), x1 = Math.max(min.x, max.x)
+    const y0 = Math.min(min.y, max.y), y1 = Math.max(min.y, max.y)
+
+    for (let tx = x0; tx <= x1; tx++) {
+      for (let ty = y0; ty <= y1; ty++) {
+        const url = `${tileOrigin}${tilePath}/${z}/${tx}/${ty}.pbf`
+        const hit = await cache.match(url)
+        if (!hit) {
+          await fetch(url)
+            .then(r => { if (r.ok) try { cache.put(url, r) } catch {} })
+            .catch(() => {})
+          // Petite pause pour ne pas bloquer la connexion
+          await new Promise(r => setTimeout(r, 150))
+        }
+      }
+    }
+  }
+}
+
+// Le premier fetch d'une tuile .pbf enregistre le template d'URL (origine + chemin de base).
+function storeTileTemplate(cache, url) {
+  const basePath = url.pathname.replace(/\/\d+\/\d+\/\d+\.pbf$/, '')
+  const templateKey = '__gnc_tile_template__'
+  cache.match(templateKey).then(hit => {
+    if (!hit) {
+      cache.put(templateKey, new Response(JSON.stringify({ origin: url.origin, path: basePath }), {
+        headers: { 'Content-Type': 'application/json' },
+      }))
+    }
+  })
+}
+
+self.addEventListener('message', e => {
+  if (e.data?.type !== 'PREWARM_MAP') return
+  const { lat, lng } = e.data
+  if (!lat || !lng) return
+
+  caches.open(TILE_CACHE).then(async cache => {
+    const templateRes = await cache.match('__gnc_tile_template__')
+    let origin, path
+    if (templateRes) {
+      try { ({ origin, path } = await templateRes.json()) } catch { return }
+    } else {
+      // Fallback : OpenFreeMap tiles.openfreemap.org
+      origin = 'https://tiles.openfreemap.org'
+      path = '/planet'
+    }
+    prewarmRegion(cache, lat, lng, origin, path)
+  })
+})
+
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return
   const url = new URL(e.request.url)
@@ -68,9 +144,7 @@ self.addEventListener('fetch', e => {
     return
   }
 
-  // Style JSON MapLibre (liberty/bright) — stale-while-revalidate :
-  // sert depuis le cache immédiatement, met à jour en arrière-plan.
-  // Le style fait ~500 Ko ; sans cache, il bloque le premier rendu.
+  // Style JSON MapLibre — stale-while-revalidate
   if (url.hostname.includes('openfreemap.org') && url.pathname.endsWith('.json')) {
     e.respondWith(
       caches.open(STYLE_CACHE).then(async cache => {
@@ -101,6 +175,7 @@ self.addEventListener('fetch', e => {
           if (url.hostname.includes('tile.openstreetmap.org')) {
             prefetchOsmChildren(cache, url)
           } else if (url.hostname.includes('openfreemap.org') && url.pathname.endsWith('.pbf')) {
+            storeTileTemplate(cache, url)
             prefetchVectorNeighbors(cache, url)
           }
         }
