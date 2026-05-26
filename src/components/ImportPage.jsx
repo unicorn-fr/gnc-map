@@ -277,7 +277,8 @@ export default function ImportPage({ commercials, onClose, onImported }) {
       batch_id: batchId,
     })
 
-    setResults({ inserted, updated, skipped, total: prepared.length })
+    const noGeo = geoResults.filter(g => g === null).length
+    setResults({ inserted, updated, skipped, noGeo, total: prepared.length })
     setIsRunning(false)
   }
 
@@ -603,11 +604,12 @@ export default function ImportPage({ commercials, onClose, onImported }) {
                   <CheckCircle2 size={40} className="text-emerald-500" />
                 </div>
                 <h2 className="text-xl font-bold text-gray-800 mb-6">Import terminé !</h2>
-                <div className="w-full grid grid-cols-3 gap-3 mb-8">
+                <div className="w-full grid grid-cols-2 gap-3 mb-4">
                   {[
                     { value: results.inserted, label: 'Ajoutés',    color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
                     { value: results.updated,  label: 'Mis à jour', color: 'bg-blue-50 text-blue-700 border-blue-200' },
                     { value: results.skipped,  label: 'Ignorés',    color: 'bg-gray-50 text-gray-500 border-gray-200' },
+                    { value: results.noGeo,    label: 'Non localisés', color: results.noGeo > 0 ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-gray-50 text-gray-400 border-gray-200' },
                   ].map(s => (
                     <div key={s.label} className={`rounded-2xl border p-4 ${s.color}`}>
                       <p className="text-3xl font-extrabold">{s.value}</p>
@@ -615,6 +617,11 @@ export default function ImportPage({ commercials, onClose, onImported }) {
                     </div>
                   ))}
                 </div>
+                {results.noGeo > 0 && (
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-6 text-left">
+                    ⚠️ {results.noGeo} site{results.noGeo > 1 ? 's' : ''} sans coordonnées GPS — adresse non reconnue ou hors zone (Lyon / Grenoble / Jura / Suisse). Vérifiez l'adresse depuis la fiche site.
+                  </p>
+                )}
                 <button
                   onClick={onImported}
                   className="w-full py-4 bg-blue-700 hover:bg-blue-800 text-white rounded-2xl font-bold text-base"

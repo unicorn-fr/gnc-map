@@ -1,9 +1,17 @@
-const CACHE = 'gnc-map-v16'
-const TILE_CACHE = 'gnc-tiles-v10'
+const CACHE = 'gnc-map-v17'
+const TILE_CACHE = 'gnc-tiles-v11'
 const STYLE_CACHE = 'gnc-styles-v1'
+
+const STYLE_URL = 'https://tiles.openfreemap.org/styles/bright'
 
 self.addEventListener('install', e => {
   self.skipWaiting()
+  // Pré-cache le style JSON dès l'installation pour un premier rendu instantané
+  e.waitUntil(
+    caches.open(STYLE_CACHE).then(cache =>
+      fetch(STYLE_URL).then(r => { if (r.ok) try { cache.put(STYLE_URL, r) } catch {} }).catch(() => {})
+    )
+  )
 })
 
 self.addEventListener('activate', e => {
@@ -23,18 +31,21 @@ function fetchAndCache(cache, url) {
   })
 }
 
-// 8 tuiles voisines au même zoom — couvre le déplacement latéral.
+// 2 anneaux de voisins au même zoom — couvre un déplacement rapide.
+// Anneau 1 (8 tuiles) + anneau 2 (16 tuiles) = 24 tuiles au total.
 function prefetchVectorNeighbors(cache, url) {
   const m = url.pathname.match(/\/(\d+)\/(\d+)\/(\d+)\.pbf$/)
   if (!m) return
   const z = +m[1], x = +m[2], y = +m[3]
   if (z < 5 || z > 15) return
   const base = url.pathname.replace(/\/\d+\/\d+\/\d+\.pbf$/, '')
-  ;[
-    [x-1, y-1], [x, y-1], [x+1, y-1],
-    [x-1, y  ],            [x+1, y  ],
-    [x-1, y+1], [x, y+1], [x+1, y+1],
-  ].forEach(([nx, ny]) => fetchAndCache(cache, `${url.origin}${base}/${z}/${nx}/${ny}.pbf`))
+  const radius = z <= 13 ? 2 : 1   // 2 anneaux au zoom normal, 1 au zoom max
+  for (let dx = -radius; dx <= radius; dx++) {
+    for (let dy = -radius; dy <= radius; dy++) {
+      if (dx === 0 && dy === 0) continue
+      fetchAndCache(cache, `${url.origin}${base}/${z}/${x+dx}/${y+dy}.pbf`)
+    }
+  }
 }
 
 // 2 niveaux de parents — couche de repli pour le zoom arrière.
