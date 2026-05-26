@@ -86,15 +86,14 @@ create table if not exists public.sessions (
 );
 
 -- ── Commerciaux ───────────────────────────────────────────────
--- Insère uniquement si la table est vide
+-- UUIDs fixes : doivent correspondre exactement à ceux dans src/lib/commercials.js
 
-insert into public.commercials (name, color)
-select * from (values
-  ('Cédric',    '#2563EB'),
-  ('Enzo',      '#16A34A'),
-  ('Laëtitia',  '#D97706')
-) as v(name, color)
-where not exists (select 1 from public.commercials);
+insert into public.commercials (id, name, color)
+values
+  ('c1000000-0000-0000-0000-000000000001', 'Cédric',   '#2563EB'),
+  ('c1000000-0000-0000-0000-000000000002', 'Enzo',     '#16A34A'),
+  ('c1000000-0000-0000-0000-000000000003', 'Laëtitia', '#D97706')
+on conflict (id) do update set name = excluded.name, color = excluded.color;
 
 -- ── Accès sans authentification ───────────────────────────────
 
