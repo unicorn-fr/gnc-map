@@ -394,16 +394,48 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
       {/* ── Header bleu ─────────────────────────────────────────── */}
       <div style={{
         flexShrink: 0, background: '#172554',
-        display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px',
+        display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
       }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
+        {/* Titre */}
+        <div style={{ flexShrink: 0 }}>
           <p style={{ fontWeight: 800, fontSize: 15, color: 'white', lineHeight: 1.2, margin: 0 }}>GNC Map</p>
-          <p style={{ fontSize: 11, color: '#93C5FD', margin: 0 }}>Groupe Nord Coffrage</p>
+          <p style={{ fontSize: 10, color: '#93C5FD', margin: 0 }}>Nord Coffrage</p>
         </div>
+
+        {/* Barre de recherche — dans le header, toujours visible */}
+        <div style={{
+          flex: 1, display: 'flex', alignItems: 'center', gap: 8,
+          background: 'rgba(255,255,255,0.15)', borderRadius: 12,
+          padding: '8px 10px', cursor: 'pointer',
+        }}>
+          <Search
+            size={16} strokeWidth={2.5}
+            style={{ color: 'rgba(255,255,255,0.7)', flexShrink: 0 }}
+            onClick={() => setShowSearch('text')}
+          />
+          <span
+            onClick={() => setShowSearch('text')}
+            style={{ flex: 1, fontSize: 13, color: 'rgba(255,255,255,0.6)', fontWeight: 500, userSelect: 'none' }}
+          >
+            Rechercher…
+          </span>
+          <button
+            onClick={() => setShowSearch('voice')}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: 30, height: 30, borderRadius: '50%',
+              background: '#1D4ED8', border: 'none', cursor: 'pointer', flexShrink: 0,
+            }}
+          >
+            <Mic size={15} strokeWidth={2} style={{ color: 'white' }} />
+          </button>
+        </div>
+
+        {/* Bouton commercial */}
         <button onClick={onSwitch} style={{
-          display: 'flex', alignItems: 'center', gap: 8,
+          display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
           background: 'rgba(255,255,255,0.12)', borderRadius: 12,
-          padding: '6px 12px', border: 'none', cursor: 'pointer',
+          padding: '6px 10px', border: 'none', cursor: 'pointer',
         }}>
           <div style={{
             width: 24, height: 24, borderRadius: 8, background: commercial.color,
