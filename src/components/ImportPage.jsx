@@ -31,10 +31,10 @@ const normalizeType = (v = '') => {
 }
 
 const normalizeStatus = (v = '') => {
-  const s = String(v).toLowerCase()
+  const s = String(v).toLowerCase().trim()
   if (s.includes('client')) return 'client'
-  if (s.includes('cours') || s.includes('actif') || s.includes('location')) return 'en_cours'
-  if (s.includes('termin') || s.includes('clôt') || s.includes('clot') || s.includes('fini')) return 'termine'
+  if (s.includes('cours') || s.includes('actif') || s.includes('location') || s === 'oui' || s === 'o' || s === '1') return 'en_cours'
+  if (s.includes('termin') || s.includes('clôt') || s.includes('clot') || s.includes('fini') || s === 'non' || s === 'n' || s === '0') return 'termine'
   return 'prospect'
 }
 
@@ -139,12 +139,12 @@ export default function ImportPage({ commercials, onClose, onImported }) {
       setColumns(cols)
       setRows(parsed)
       setMapping({
-        name:        guessCol(cols, ['raison sociale', 'raison', 'nom', 'name', 'entreprise', 'société', 'client']),
+        name:        guessCol(cols, ['chantier', 'raison sociale', 'raison', 'nom', 'name', 'entreprise', 'société', 'client']),
         company:     guessCol(cols, ['raison sociale', 'société', 'enseigne', 'entreprise']),
-        type:        guessCol(cols, ['chantier', 'type']),
+        type:        guessCol(cols, ['type']),
         status:      guessCol(cols, ['actif', 'statut', 'status', 'état']),
         address:     guessCol(cols, ['adresse1', 'address1', 'adresse', 'adress', 'address', 'rue', 'voie', 'street']),
-        address2:    guessCol(cols, ['adresse2', 'address2', 'complément', 'complement', 'suite', 'lieu dit']),
+        address2:    guessCol(cols, ['adresse_1', 'adresse2', 'address2', 'complément', 'complement', 'suite', 'lieu dit']),
         postcode:    guessCol(cols, ['c.p', 'cp', 'code postal', 'code_postal', 'postal', 'zip', 'codepostal']),
         city:        guessCol(cols, ['ville', 'city', 'commune', 'localité']),
         phone:       guessCol(cols, ['téléphone', 'telephone', 'tel', 'phone', 'mobile']),
@@ -174,7 +174,11 @@ export default function ImportPage({ commercials, onClose, onImported }) {
 
     const addr1 = mapping.address  ? str(row[mapping.address])  : ''
     const addr2 = mapping.address2 ? str(row[mapping.address2]) : ''
-    const fullAddress = [addr1, addr2].filter(Boolean).join(' ')
+    // Adresses supplémentaires (colonnes dupliquées renommées _2, _3 par xlsx)
+    const colBase = mapping.address ? mapping.address.replace(/_\d+$/, '') : ''
+    const addr3 = colBase ? str(row[colBase + '_2'] ?? '') : ''
+    const addr4 = colBase ? str(row[colBase + '_3'] ?? '') : ''
+    const fullAddress = [addr1, addr2, addr3, addr4].filter(Boolean).join(' ')
 
     return {
       name:        mapping.name        ? str(row[mapping.name])        : '',
