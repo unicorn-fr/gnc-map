@@ -7,16 +7,21 @@ import { geocodeBatch } from '../lib/geocode'
 import toast from 'react-hot-toast'
 
 // ── Helpers ──────────────────────────────────────────────────
+// Normalise une chaîne : minuscules + sans accents + sans ponctuation
+const flatStr = s => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[.\s_\-/]/g, '')
+
 const guessCol = (cols, keywords) => {
+  // 1er passage : toLowerCase simple (accents conservés)
   const lc = cols.map(c => c.toLowerCase())
   for (const kw of keywords) {
     const idx = lc.findIndex(c => c.includes(kw))
     if (idx >= 0) return cols[idx]
   }
-  const stripped = cols.map(c => c.toLowerCase().replace(/[.\s_\-/]/g, ''))
+  // 2e passage : sans accents + sans ponctuation (gère NFD/NFC et caractères spéciaux)
+  const flat = cols.map(flatStr)
   for (const kw of keywords) {
-    const kwS = kw.replace(/[.\s_\-/]/g, '')
-    const idx = stripped.findIndex(c => c.includes(kwS))
+    const kwF = flatStr(kw)
+    const idx = flat.findIndex(c => c.includes(kwF))
     if (idx >= 0) return cols[idx]
   }
   return ''
@@ -204,6 +209,11 @@ export default function ImportPage({ commercials, onClose, onImported }) {
   const ignoredCount = allParsed.filter(r => r === null).length
   const validRows    = allParsed.filter(r => r !== null && r.name.length > 0)
   const preview      = rows.slice(0, 8).map(buildPreviewRow).filter(Boolean)
+
+  // Valeurs de la colonne commercial non reconnues (pour diagnostic)
+  const unknownCommercialSamples = mapping.commercial
+    ? [...new Set(rows.map(r => str(r[mapping.commercial])).filter(v => v && !matchCommercial(v, commercials)))].slice(0, 6)
+    : []
 
   // ── Étape 4 : import (optimisé batch) ─────────────────────────
   const runImport = async () => {
@@ -505,9 +515,17 @@ export default function ImportPage({ commercials, onClose, onImported }) {
                     {validRows.length} sites à importer sur {rows.length} lignes
                   </p>
                   {ignoredCount > 0 && (
-                    <p className="text-sm text-amber-600 mt-0.5">
-                      ⚠️ {ignoredCount} ligne{ignoredCount > 1 ? 's ignorées' : ' ignorée'} — commercial non reconnu
-                    </p>
+                    <div className="mt-1">
+                      <p className="text-sm text-amber-600">
+                        ⚠️ {ignoredCount} ligne{ignoredCount > 1 ? 's ignorées' : ' ignorée'} — commercial non reconnu
+                      </p>
+                      {unknownCommercialSamples.length > 0 && (
+                        <p className="text-xs text-amber-500 mt-0.5">
+                          Valeurs lues : <strong>{unknownCommercialSamples.join(', ')}</strong>
+                          {' '}— attendu : EM, CT, LJ (ou Enzo, Cédric, Laëtitia)
+                        </p>
+                      )}
+                    </div>
                   )}
                   {(rows.length - validRows.length - ignoredCount) > 0 && (
                     <p className="text-sm text-gray-400 mt-0.5">
