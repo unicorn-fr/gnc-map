@@ -30,9 +30,9 @@ const BADGE = {
   termine:  { label: 'Terminé',   bg: '#F1F5F9', color: '#64748B' },
 }
 
-export default function VoiceSearchModal({ sites, allCommercials, getColor, onSelectSite, onClose }) {
-  const [phase, setPhase] = useState('ready') // ready | listening | results
-  const [transcript, setTranscript] = useState('')
+export default function VoiceSearchModal({ sites, allCommercials, getColor, onSelectSite, onClose, initialTranscript = '' }) {
+  const [phase, setPhase] = useState(initialTranscript ? 'results' : 'ready')
+  const [transcript, setTranscript] = useState(initialTranscript)
   const recogRef = useRef(null)
 
   const commercialMap = useMemo(() => {
