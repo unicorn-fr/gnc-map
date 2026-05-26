@@ -176,7 +176,7 @@ export default function ImportPage({ commercials, onClose, onImported }) {
   const buildPreviewRow = (row) => {
     const commercialValue = mapping.commercial ? str(row[mapping.commercial]) : ''
     const matched = matchCommercial(commercialValue, commercials)
-    if (mapping.commercial && !matched) return null
+    // Ne jamais ignorer une ligne à cause du commercial — fallback sur le premier
     const comm = matched ?? commercials[0]
     if (!comm) return null
 
@@ -188,9 +188,14 @@ export default function ImportPage({ commercials, onClose, onImported }) {
     const addr4 = colBase ? str(row[colBase + '_3'] ?? '') : ''
     const fullAddress = [addr1, addr2, addr3, addr4].filter(Boolean).join(' ')
 
+    // Si la colonne name contient 0 ou est vide, essayer la colonne company en fallback
+    const rawName = mapping.name ? str(row[mapping.name]) : ''
+    const rawCompany = mapping.company ? str(row[mapping.company]) : ''
+    const resolvedName = (rawName && rawName !== '0') ? rawName : rawCompany
+
     return {
-      name:        mapping.name        ? str(row[mapping.name])        : '',
-      company:     mapping.company     ? str(row[mapping.company])     : '',
+      name:        resolvedName,
+      company:     rawCompany,
       type:        mapping.type        ? normalizeType(str(row[mapping.type]))   : 'chantier',
       status:      mapping.status      ? normalizeStatus(str(row[mapping.status])) : 'prospect',
       address:     fullAddress,
@@ -514,18 +519,10 @@ export default function ImportPage({ commercials, onClose, onImported }) {
                   <p className="font-semibold text-gray-800">
                     {validRows.length} sites à importer sur {rows.length} lignes
                   </p>
-                  {ignoredCount > 0 && (
-                    <div className="mt-1">
-                      <p className="text-sm text-amber-600">
-                        ⚠️ {ignoredCount} ligne{ignoredCount > 1 ? 's ignorées' : ' ignorée'} — commercial non reconnu
-                      </p>
-                      {unknownCommercialSamples.length > 0 && (
-                        <p className="text-xs text-amber-500 mt-0.5">
-                          Valeurs lues : <strong>{unknownCommercialSamples.join(', ')}</strong>
-                          {' '}— attendu : EM, CT, LJ (ou Enzo, Cédric, Laëtitia)
-                        </p>
-                      )}
-                    </div>
+                  {unknownCommercialSamples.length > 0 && (
+                    <p className="text-sm text-amber-600 mt-0.5">
+                      ⚠️ Commercial non reconnu pour certaines lignes (assigné au 1er commercial) — valeurs lues : <strong>{unknownCommercialSamples.join(', ')}</strong>
+                    </p>
                   )}
                   {(rows.length - validRows.length - ignoredCount) > 0 && (
                     <p className="text-sm text-gray-400 mt-0.5">
