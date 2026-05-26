@@ -100,6 +100,7 @@ export default function ImportPage({ commercials, onClose, onImported }) {
   const [deletingBatch, setDeletingBatch] = useState(null)
   const [fixableRows, setFixableRows] = useState([])
   const [importBatchId, setImportBatchId] = useState(null)
+  const [editOverrides, setEditOverrides] = useState({})
   const fileRef = useRef()
 
   useEffect(() => {
@@ -146,6 +147,7 @@ export default function ImportPage({ commercials, onClose, onImported }) {
       const parsed = XLSX.utils.sheet_to_json(ws, { defval: '' })
       if (!parsed.length) return toast.error('Le fichier semble vide')
       const cols = Object.keys(parsed[0])
+      setEditOverrides({})
       setColumns(cols)
       setRows(parsed)
       setMapping({
@@ -175,34 +177,33 @@ export default function ImportPage({ commercials, onClose, onImported }) {
   }
 
   // ── Étape 3 : aperçu ──────────────────────────────────────────
-  const buildPreviewRow = (row) => {
+  const buildPreviewRow = (row, ovr = {}) => {
     const commercialValue = mapping.commercial ? str(row[mapping.commercial]) : ''
     const matched = matchCommercial(commercialValue, commercials)
-    // Ne jamais ignorer une ligne à cause du commercial — fallback sur le premier
-    const comm = matched ?? commercials[0]
+    const comm = ovr.commercial_id
+      ? (commercials.find(c => c.id === ovr.commercial_id) ?? commercials[0])
+      : (matched ?? commercials[0])
     if (!comm) return null
 
     const addr1 = mapping.address  ? str(row[mapping.address])  : ''
     const addr2 = mapping.address2 ? str(row[mapping.address2]) : ''
-    // Adresses supplémentaires (colonnes dupliquées renommées _2, _3 par xlsx)
     const colBase = mapping.address ? mapping.address.replace(/_\d+$/, '') : ''
     const addr3 = colBase ? str(row[colBase + '_2'] ?? '') : ''
     const addr4 = colBase ? str(row[colBase + '_3'] ?? '') : ''
     const fullAddress = [addr1, addr2, addr3, addr4].filter(Boolean).join(' ')
 
-    // Si la colonne name contient 0 ou est vide, essayer la colonne company en fallback
     const rawName = mapping.name ? str(row[mapping.name]) : ''
     const rawCompany = mapping.company ? str(row[mapping.company]) : ''
     const resolvedName = (rawName && rawName !== '0') ? rawName : rawCompany
 
     return {
-      name:        resolvedName,
+      name:        ovr.name     !== undefined ? ovr.name     : resolvedName,
       company:     rawCompany,
-      type:        mapping.type        ? normalizeType(str(row[mapping.type]))   : 'chantier',
+      type:        mapping.type        ? normalizeType(str(row[mapping.type]))     : 'chantier',
       status:      mapping.status      ? normalizeStatus(str(row[mapping.status])) : 'prospect',
-      address:     fullAddress,
-      postcode:    mapping.postcode    ? str(row[mapping.postcode])    : '',
-      city:        mapping.city        ? str(row[mapping.city])        : '',
+      address:     ovr.address  !== undefined ? ovr.address  : fullAddress,
+      postcode:    ovr.postcode !== undefined ? ovr.postcode : (mapping.postcode ? str(row[mapping.postcode]) : ''),
+      city:        ovr.city     !== undefined ? ovr.city     : (mapping.city     ? str(row[mapping.city])     : ''),
       phone:       mapping.phone       ? str(row[mapping.phone])       : '',
       email:       mapping.email       ? str(row[mapping.email])       : '',
       notes:       mapping.notes       ? str(row[mapping.notes])       : '',
@@ -212,10 +213,19 @@ export default function ImportPage({ commercials, onClose, onImported }) {
     }
   }
 
-  const allParsed    = rows.map(buildPreviewRow)
+  const setOverride = (i, field, value) =>
+    setEditOverrides(prev => ({ ...prev, [i]: { ...prev[i], [field]: value } }))
+
+  const allParsed    = rows.map((row, i) => buildPreviewRow(row, editOverrides[i] || {}))
   const ignoredCount = allParsed.filter(r => r === null).length
   const validRows    = allParsed.filter(r => r !== null && r.name.length > 0)
-  const preview      = rows.slice(0, 8).map(buildPreviewRow).filter(Boolean)
+  const preview      = rows.slice(0, 8).map((row, i) => buildPreviewRow(row, editOverrides[i] || {})).filter(Boolean)
+
+  // Lignes avec problème (nom vide) — éditables avant import
+  const problemRowIndices = rows.map((row, i) => {
+    const parsed = buildPreviewRow(row, editOverrides[i] || {})
+    return (parsed === null || parsed.name.length === 0) ? i : -1
+  }).filter(i => i >= 0)
 
   // Valeurs de la colonne commercial non reconnues (pour diagnostic)
   const unknownCommercialSamples = mapping.commercial
@@ -654,6 +664,70 @@ export default function ImportPage({ commercials, onClose, onImported }) {
                 </div>
               )}
             </div>
+
+            {/* Lignes à corriger avant import */}
+            {problemRowIndices.length > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl overflow-hidden mb-4">
+                <div className="flex items-center gap-2 px-4 py-3 border-b border-amber-200 bg-amber-100">
+                  <AlertCircle size={15} className="text-amber-600" />
+                  <p className="text-sm font-bold text-amber-800">
+                    {problemRowIndices.length} ligne{problemRowIndices.length > 1 ? 's' : ''} ignorée{problemRowIndices.length > 1 ? 's' : ''} — nom manquant
+                  </p>
+                  <span className="ml-auto text-xs text-amber-600">Corrigez-les pour les inclure</span>
+                </div>
+                <div className="divide-y divide-amber-100">
+                  {problemRowIndices.map(i => {
+                    const ovr = editOverrides[i] || {}
+                    const rawRow = rows[i]
+                    const autoAddress = (() => {
+                      const a1 = mapping.address ? str(rawRow[mapping.address]) : ''
+                      const a2 = mapping.address2 ? str(rawRow[mapping.address2]) : ''
+                      return [a1, a2].filter(Boolean).join(' ')
+                    })()
+                    const autoPostcode = mapping.postcode ? str(rawRow[mapping.postcode]) : ''
+                    const autoCity = mapping.city ? str(rawRow[mapping.city]) : ''
+                    return (
+                      <div key={i} className="p-3 space-y-2">
+                        <p className="text-xs text-amber-700 font-semibold">Ligne {i + 2}</p>
+                        <input
+                          value={ovr.name ?? ''}
+                          onChange={e => setOverride(i, 'name', e.target.value)}
+                          placeholder="Nom du site (obligatoire)"
+                          className="w-full border border-amber-300 bg-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                        />
+                        <input
+                          value={ovr.address ?? autoAddress}
+                          onChange={e => setOverride(i, 'address', e.target.value)}
+                          placeholder="Adresse"
+                          className="w-full border border-gray-200 bg-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        />
+                        <div className="flex gap-2">
+                          <input
+                            value={ovr.postcode ?? autoPostcode}
+                            onChange={e => setOverride(i, 'postcode', e.target.value)}
+                            placeholder="Code postal"
+                            className="w-28 border border-gray-200 bg-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                          />
+                          <input
+                            value={ovr.city ?? autoCity}
+                            onChange={e => setOverride(i, 'city', e.target.value)}
+                            placeholder="Ville"
+                            className="flex-1 border border-gray-200 bg-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                          />
+                          <select
+                            value={ovr.commercial_id ?? (commercials[0]?.id ?? '')}
+                            onChange={e => setOverride(i, 'commercial_id', e.target.value)}
+                            className="border border-gray-200 bg-white rounded-xl px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                          >
+                            {commercials.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
 
             <div className="flex gap-3">
               <button onClick={() => setStep(1)} className="flex-1 py-3 border border-gray-200 text-gray-600 rounded-xl text-sm font-semibold">
