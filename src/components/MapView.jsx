@@ -88,9 +88,6 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
   const [mapStyle, setMapStyle] = useState('street')
   const [showSearch, setShowSearch] = useState(false)
   const [showVoiceSearch, setShowVoiceSearch] = useState(false)
-  const [voiceSearchInitial, setVoiceSearchInitial] = useState('')
-  const [voiceListening, setVoiceListening] = useState(false)
-  const [voiceTranscript, setVoiceTranscript] = useState('')
   const [voiceNavSite, setVoiceNavSite] = useState(null)
 
   const mapRef = useRef(null)
@@ -100,7 +97,6 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
   selectedSiteRef.current = selectedSite
   const sitesRef = useRef([])
   sitesRef.current = sites
-  const voiceRecogRef = useRef(null)
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
@@ -303,59 +299,6 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
     }
   }, [handleVoiceNav])
 
-  // Appelé directement dans onClick → geste utilisateur garanti
-  const handleMicClick = () => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SR) return
-
-    if (voiceListening) {
-      voiceRecogRef.current?.stop()
-      return
-    }
-
-    const recog = new SR()
-    recog.lang = 'fr-FR'
-    recog.continuous = true       // évite le timeout "no-speech" de 0,5 s
-    recog.interimResults = true
-    recog.maxAlternatives = 1
-
-    const finalRef = { current: '' }
-
-    recog.onstart  = () => setVoiceListening(true)
-
-    recog.onresult = (e) => {
-      let interim = '', final = ''
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const t = e.results[i][0].transcript
-        if (e.results[i].isFinal) final += t
-        else interim += t
-      }
-      if (final) {
-        finalRef.current = final
-        setVoiceTranscript(final)
-        recog.stop()              // arrêt dès qu'une phrase finale est reçue
-      } else {
-        setVoiceTranscript(interim)
-      }
-    }
-
-    recog.onerror = () => { setVoiceListening(false); setVoiceTranscript('') }
-
-    recog.onend = () => {
-      setVoiceListening(false)
-      setVoiceTranscript('')
-      const t = finalRef.current.trim()
-      finalRef.current = ''
-      if (t) {
-        setVoiceSearchInitial(t)
-        setShowVoiceSearch(true)
-      }
-    }
-
-    recog.start()
-    voiceRecogRef.current = recog
-  }
-
   const handleLocateMe = async () => {
     if (!navigator.geolocation) return toast.error('Géolocalisation non disponible sur cet appareil')
     if (userPosition) { setFlyTo({ lat: userPosition[0], lng: userPosition[1] }); return }
@@ -444,13 +387,12 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           sites={sites}
           allCommercials={allCommercials}
           getColor={getColor}
-          initialTranscript={voiceSearchInitial}
           onSelectSite={(site) => {
             setSelectedSite(site)
             if (site.lat && site.lng) setFlyTo({ lat: site.lat, lng: site.lng })
             setShowVoiceSearch(false)
           }}
-          onClose={() => { setShowVoiceSearch(false); setVoiceSearchInitial('') }}
+          onClose={() => setShowVoiceSearch(false)}
         />
       )}
       {voiceNavSite && (
@@ -572,30 +514,23 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         }}>
           <Search size={19} strokeWidth={2.5} style={{ color: '#1D4ED8', flexShrink: 0 }} />
           <div
-            onClick={() => !voiceListening && setShowSearch('text')}
-            style={{ flex: 1, cursor: voiceListening ? 'default' : 'pointer', userSelect: 'none', minWidth: 0 }}
+            onClick={() => setShowSearch('text')}
+            style={{ flex: 1, cursor: 'pointer', userSelect: 'none' }}
           >
-            {voiceListening
-              ? <span style={{ fontSize: 13, color: '#EF4444', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
-                  {voiceTranscript || 'Parlez maintenant…'}
-                </span>
-              : <span style={{ fontSize: 14, color: '#9CA3AF', fontWeight: 500 }}>Rechercher un site…</span>
-            }
+            <span style={{ fontSize: 14, color: '#9CA3AF', fontWeight: 500 }}>Rechercher un site…</span>
           </div>
           <div style={{ width: 1, height: 20, background: '#E5E7EB', flexShrink: 0 }} />
           <button
-            onClick={handleMicClick}
+            onClick={() => setShowVoiceSearch(true)}
             style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               width: 36, height: 36, borderRadius: '50%', border: 'none', cursor: 'pointer', flexShrink: 0,
-              background: voiceListening ? '#EF4444' : '#1D4ED8',
-              animation: voiceListening ? 'micPulse 1s ease-in-out infinite' : 'none',
+              background: '#1D4ED8',
             }}
           >
             <Mic size={17} strokeWidth={2} style={{ color: 'white' }} />
           </button>
         </div>
-        <style>{`@keyframes micPulse{0%{box-shadow:0 0 0 0 rgba(239,68,68,0.5)}70%{box-shadow:0 0 0 8px rgba(239,68,68,0)}100%{box-shadow:0 0 0 0 rgba(239,68,68,0)}}`}</style>
 
         {/* Légende commerciaux — sous la barre de recherche */}
         <div style={{
