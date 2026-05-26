@@ -67,7 +67,7 @@ const SiteMarker = memo(function SiteMarker({ site, color, onSelect }) {
 })
 
 export default function MapView({ commercial, onSwitch, installPrompt, onInstalled }) {
-  const [allCommercials, setAllCommercials] = useState(() => getCachedAppData()?.comms ?? COMMERCIALS)
+  const [allCommercials, setAllCommercials] = useState(() => { const c = getCachedAppData()?.comms; return c?.length ? c : COMMERCIALS })
   const [sites, setSites] = useState(() => (getCachedAppData()?.sites ?? []).filter(s => !s.deleted))
   const [selectedSite, setSelectedSite] = useState(null)
   const [showAddModal, setShowAddModal] = useState(false)

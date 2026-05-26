@@ -147,10 +147,10 @@ export default function ImportPage({ commercials, onClose, onImported }) {
       setColumns(cols)
       setRows(parsed)
       setMapping({
-        name:        guessCol(cols, ['chantier', 'raison sociale', 'raison', 'nom', 'name', 'entreprise', 'société', 'client']),
+        name:        guessCol(cols, ['raison sociale', 'raison', 'nom du site', 'nom', 'name', 'entreprise', 'société']),
         company:     guessCol(cols, ['raison sociale', 'société', 'enseigne', 'entreprise']),
-        type:        guessCol(cols, ['type']),
-        status:      guessCol(cols, ['actif', 'statut', 'status', 'état']),
+        type:        guessCol(cols, ['chantier', 'type chantier', 'type site']),
+        status:      guessCol(cols, ['statut', 'status', 'état', 'type', 'actif']),
         address:     guessCol(cols, ['adresse1', 'address1', 'adresse', 'adress', 'address', 'rue', 'voie', 'street']),
         address2:    guessCol(cols, ['adresse_1', 'adresse2', 'address2', 'complément', 'complement', 'suite', 'lieu dit']),
         postcode:    guessCol(cols, ['c.p', 'cp', 'code postal', 'code_postal', 'postal', 'zip', 'codepostal']),
@@ -159,7 +159,7 @@ export default function ImportPage({ commercials, onClose, onImported }) {
         email:       guessCol(cols, ['email', 'mail', 'adresse email', 'courriel', 'e-mail']),
         notes:       guessCol(cols, ['activité', 'activite', 'secteur', 'note', 'obs', 'remarque', 'comment', 'info']),
         external_id: guessCol(cols, ['code client', 'id', 'ref', 'n°', 'numero', 'numéro', 'identifiant']),
-        commercial:  guessCol(cols, ['représentant', 'representant', 'commercial', 'vendeur', 'chargé', 'responsable']),
+        commercial:  guessCol(cols, ['code représentant', 'code representant', 'représentant', 'representant', 'commercial', 'vendeur', 'chargé', 'responsable']),
       })
       setStep(1)
     }
