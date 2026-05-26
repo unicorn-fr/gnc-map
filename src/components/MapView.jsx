@@ -414,37 +414,6 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         </button>
       </div>
 
-      {/* ── Barre de recherche — dans le flux, juste sous le header ─ */}
-      <div style={{ flexShrink: 0, background: '#1e3a5f', padding: '8px 12px 12px' }}>
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 10,
-          background: 'white', borderRadius: 16, padding: '12px 14px',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.35)',
-          minHeight: 50,
-        }}>
-          <Search size={20} strokeWidth={2.5} style={{ color: '#1D4ED8', flexShrink: 0 }} />
-          <div
-            onClick={() => setShowSearch('text')}
-            style={{ flex: 1, cursor: 'pointer', userSelect: 'none' }}
-          >
-            <span style={{ fontSize: 15, color: '#6B7280', fontWeight: 500 }}>
-              Rechercher un site…
-            </span>
-          </div>
-          <div style={{ width: 1, height: 22, background: '#E5E7EB', flexShrink: 0 }} />
-          <button
-            onClick={() => setShowSearch('voice')}
-            style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              width: 38, height: 38, borderRadius: '50%',
-              background: '#1D4ED8', border: 'none', cursor: 'pointer', flexShrink: 0,
-            }}
-          >
-            <Mic size={18} strokeWidth={2} style={{ color: 'white' }} />
-          </button>
-        </div>
-      </div>
-
       {/* ── Carte ───────────────────────────────────────────────── */}
       <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
 
@@ -528,9 +497,36 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           ))}
         </ReactMap>
 
-        {/* Légende commerciaux — haut gauche */}
+        {/* ── Barre de recherche flottante — haut (même approche que les FABs) ── */}
         <div style={{
-          position: 'absolute', top: 10, left: 10, zIndex: 500,
+          position: 'absolute', top: 10, left: 12, right: 12, zIndex: 500,
+          display: 'flex', alignItems: 'center', gap: 10,
+          background: 'white', borderRadius: 16, padding: '12px 14px',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.35)',
+        }}>
+          <Search size={20} strokeWidth={2.5} style={{ color: '#1D4ED8', flexShrink: 0 }} />
+          <div
+            onClick={() => setShowSearch('text')}
+            style={{ flex: 1, cursor: 'pointer', userSelect: 'none' }}
+          >
+            <span style={{ fontSize: 15, color: '#6B7280', fontWeight: 500 }}>Rechercher un site…</span>
+          </div>
+          <div style={{ width: 1, height: 22, background: '#E5E7EB', flexShrink: 0 }} />
+          <button
+            onClick={() => setShowSearch('voice')}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: 38, height: 38, borderRadius: '50%',
+              background: '#1D4ED8', border: 'none', cursor: 'pointer', flexShrink: 0,
+            }}
+          >
+            <Mic size={18} strokeWidth={2} style={{ color: 'white' }} />
+          </button>
+        </div>
+
+        {/* Légende commerciaux — sous la barre de recherche */}
+        <div style={{
+          position: 'absolute', top: 74, left: 10, zIndex: 500,
           background: 'rgba(255,255,255,0.95)', borderRadius: 14,
           padding: '5px 10px', display: 'flex', alignItems: 'center', gap: 10,
           boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
