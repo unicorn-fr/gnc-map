@@ -66,9 +66,7 @@ export default function SearchBar({ sites, allCommercials, getColor, onSelectSit
 
   useEffect(() => {
     if (autoVoice) {
-      // Court délai pour laisser le composant s'afficher avant de démarrer
-      const t = setTimeout(startVoice, 300)
-      return () => clearTimeout(t)
+      startVoice()
     } else {
       inputRef.current?.focus()
     }
@@ -88,15 +86,29 @@ export default function SearchBar({ sites, allCommercials, getColor, onSelectSit
     }
     const recog = new SR()
     recog.lang = 'fr-FR'
-    recog.interimResults = false
-    recog.maxAlternatives = 3
+    recog.interimResults = true
+    recog.maxAlternatives = 1
     recog.onstart = () => setListening(true)
     recog.onresult = (e) => {
-      const transcript = e.results[0][0].transcript
-      setQuery(transcript)
-      setListening(false)
+      let interim = ''
+      let final = ''
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript
+        if (e.results[i].isFinal) final += t
+        else interim += t
+      }
+      if (final) {
+        setQuery(final)
+        setListening(false)
+      } else if (interim) {
+        setQuery(interim)
+      }
     }
-    recog.onerror = () => { setListening(false); inputRef.current?.focus() }
+    recog.onerror = (err) => {
+      console.warn('SpeechRecognition error:', err.error)
+      setListening(false)
+      inputRef.current?.focus()
+    }
     recog.onend = () => setListening(false)
     recog.start()
     recogRef.current = recog
