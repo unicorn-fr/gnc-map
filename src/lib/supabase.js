@@ -1,13 +1,18 @@
 import { createClient } from '@supabase/supabase-js'
 
 const url = import.meta.env.VITE_SUPABASE_URL
+const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY // fallback pendant la transition
 const TOKEN_KEY = 'gnc_jwt_v1'
+const LEGACY_MARKER = 'legacy-auth'
 
 export const isMisconfigured = !url
 
 function buildClient(token) {
-  if (!url || !token) return null
-  return createClient(url, token, {
+  if (!url) return null
+  // Mode legacy (SUPABASE_JWT_SECRET pas encore configuré côté Vercel) → clé anon
+  const key = (!token || token === LEGACY_MARKER) ? anonKey : token
+  if (!key) return null
+  return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
   })
 }
@@ -17,6 +22,7 @@ function getStoredToken() {
 }
 
 function isExpired(token) {
+  if (!token || token === LEGACY_MARKER) return false // legacy n'expire pas
   try {
     const payload = JSON.parse(atob(token.split('.')[1]))
     return payload.exp < Date.now() / 1000
@@ -38,9 +44,10 @@ export async function authenticate(password) {
     body: JSON.stringify({ password }),
   })
   if (!res.ok) return false
-  const { token } = await res.json()
-  localStorage.setItem(TOKEN_KEY, token)
-  supabase = buildClient(token)
+  const { token, legacy } = await res.json()
+  const stored = legacy ? LEGACY_MARKER : token
+  localStorage.setItem(TOKEN_KEY, stored)
+  supabase = buildClient(stored)
   return true
 }
 
