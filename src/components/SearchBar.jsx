@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { Search, X, MapPin, Mic } from 'lucide-react'
+import { Search, X, MapPin } from 'lucide-react'
 import { firstName } from '../lib/utils'
 
 const norm = s => (s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
@@ -60,9 +60,7 @@ const STATUS_BADGE = {
 
 export default function SearchBar({ sites, allCommercials, getColor, onSelectSite, onClose, initialQuery = '' }) {
   const [query, setQuery] = useState(initialQuery)
-  const [listening, setListening] = useState(false)
   const inputRef = useRef(null)
-  const recogRef = useRef(null)
 
   useEffect(() => {
     inputRef.current?.focus()
@@ -73,35 +71,6 @@ export default function SearchBar({ sites, allCommercials, getColor, onSelectSit
     window.addEventListener('keydown', fn)
     return () => window.removeEventListener('keydown', fn)
   }, [onClose])
-
-  const startVoice = () => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SR) { inputRef.current?.focus(); return }
-    const recog = new SR()
-    recog.lang = 'fr-FR'
-    recog.interimResults = true
-    recog.maxAlternatives = 1
-    recog.onstart = () => setListening(true)
-    recog.onresult = (e) => {
-      let interim = '', final = ''
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const t = e.results[i][0].transcript
-        if (e.results[i].isFinal) final += t
-        else interim += t
-      }
-      if (final) { setQuery(final); setListening(false) }
-      else if (interim) setQuery(interim)
-    }
-    recog.onerror = () => { setListening(false); inputRef.current?.focus() }
-    recog.onend = () => setListening(false)
-    recog.start()
-    recogRef.current = recog
-  }
-
-  const stopVoice = () => {
-    recogRef.current?.stop()
-    setListening(false)
-  }
 
   const commercialMap = useMemo(() => {
     const m = {}
@@ -142,24 +111,11 @@ export default function SearchBar({ sites, allCommercials, getColor, onSelectSit
             autoComplete="off"
             value={query}
             onChange={e => setQuery(e.target.value)}
-            placeholder={listening ? 'Je vous écoute…' : 'Entreprise, ville, adresse, commercial…'}
-            className={`flex-1 text-gray-900 text-base outline-none bg-transparent ${listening ? 'placeholder-red-400' : 'placeholder-gray-400'}`}
+            placeholder="Entreprise, ville, adresse, commercial…"
+            className="flex-1 text-gray-900 text-base outline-none bg-transparent placeholder-gray-400"
           />
 
-          {/* Bouton micro */}
-          <button
-            onPointerDown={e => { e.preventDefault(); listening ? stopVoice() : startVoice() }}
-            className={`p-2 rounded-xl transition-colors flex-shrink-0 ${
-              listening
-                ? 'bg-red-500 text-white animate-pulse'
-                : 'bg-gray-100 text-gray-500 hover:bg-blue-50 hover:text-blue-600'
-            }`}
-            title={listening ? 'Arrêter' : 'Dicter'}
-          >
-            {listening ? <MicOff size={17} /> : <Mic size={17} />}
-          </button>
-
-          {query && !listening ? (
+          {query ? (
             <button onClick={() => setQuery('')} className="p-1.5 hover:bg-gray-100 rounded-lg flex-shrink-0">
               <X size={16} className="text-gray-400" />
             </button>
@@ -174,7 +130,7 @@ export default function SearchBar({ sites, allCommercials, getColor, onSelectSit
         </div>
 
         {/* Suggestions rapides */}
-        {!query && !listening && (
+        {!query && (
           <div className="flex gap-2 px-4 pb-3 overflow-x-auto no-scrollbar">
             {['Prospect', 'Client', 'En cours', 'Chantier', 'Siège'].map(tag => (
               <button
@@ -199,13 +155,6 @@ export default function SearchBar({ sites, allCommercials, getColor, onSelectSit
           </div>
         )}
 
-        {/* Indicateur d'écoute */}
-        {listening && (
-          <div className="flex items-center gap-2 px-4 pb-3">
-            <span className="inline-block w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-            <span className="text-xs text-red-500 font-medium">Parlez maintenant…</span>
-          </div>
-        )}
       </div>
 
       {/* Résultats */}
@@ -265,7 +214,7 @@ export default function SearchBar({ sites, allCommercials, getColor, onSelectSit
       )}
 
       {/* Aucun résultat */}
-      {query.trim().length >= 1 && results.length === 0 && !listening && (
+      {query.trim().length >= 1 && results.length === 0 && (
         <div className="bg-white mx-4 mt-3 rounded-2xl shadow-lg p-6 text-center">
           <p className="text-2xl mb-2">🔍</p>
           <p className="text-gray-700 font-semibold text-sm">Aucun résultat</p>

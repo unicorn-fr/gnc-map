@@ -1,7 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo, memo } from 'react'
 import ReactMap, { Marker } from 'react-map-gl/maplibre'
-import { Menu, Plus, Navigation, X, Search, Layers, Mic } from 'lucide-react'
-import SpeechRecognition from 'react-speech-recognition'
+import { Menu, Plus, Navigation, X, Search, Layers } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { requestAndSubscribe } from '../lib/push'
 import { firstName } from '../lib/utils'
@@ -11,7 +10,6 @@ import SearchBar from './SearchBar'
 import AddSiteModal from './AddSiteModal'
 import SiteDetailPanel from './SiteDetailPanel'
 import VoiceNavModal from './VoiceNavModal'
-import VoiceSearchModal from './VoiceSearchModal'
 import ImportPage from './ImportPage'
 import ReportsPage from './ReportsPage'
 import InstallBanner from './InstallBanner'
@@ -88,7 +86,6 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
   const [flyTo, setFlyTo] = useState(null)
   const [mapStyle, setMapStyle] = useState('street')
   const [showSearch, setShowSearch] = useState(false)
-  const [showVoiceSearch, setShowVoiceSearch] = useState(false)
   const [voiceNavSite, setVoiceNavSite] = useState(null)
 
   const mapRef = useRef(null)
@@ -374,20 +371,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           onClose={() => setShowSearch(false)}
         />
       )}
-      {showVoiceSearch && (
-        <VoiceSearchModal
-          sites={sites}
-          allCommercials={allCommercials}
-          getColor={getColor}
-          onSelectSite={(site) => {
-            setSelectedSite(site)
-            if (site.lat && site.lng) setFlyTo({ lat: site.lat, lng: site.lng })
-            setShowVoiceSearch(false)
-          }}
-          onClose={() => setShowVoiceSearch(false)}
-        />
-      )}
-      {voiceNavSite && (
+{voiceNavSite && (
         <VoiceNavModal site={voiceNavSite} onClose={() => setVoiceNavSite(null)} />
       )}
 
@@ -498,35 +482,18 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         </ReactMap>
 
         {/* ── Barre de recherche flottante ── */}
-        <div style={{
-          position: 'absolute', top: 10, left: 12, right: 12, zIndex: 500,
-          display: 'flex', alignItems: 'center', gap: 10,
-          background: 'white', borderRadius: 16, padding: '11px 14px',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
-        }}>
+        <div
+          onClick={() => setShowSearch(true)}
+          style={{
+            position: 'absolute', top: 10, left: 12, right: 12, zIndex: 500,
+            display: 'flex', alignItems: 'center', gap: 10,
+            background: 'white', borderRadius: 16, padding: '11px 14px',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.3)', cursor: 'pointer',
+          }}
+        >
           <Search size={19} strokeWidth={2.5} style={{ color: '#1D4ED8', flexShrink: 0 }} />
-          <div
-            onClick={() => setShowSearch(true)}
-            style={{ flex: 1, cursor: 'pointer', userSelect: 'none', minWidth: 0 }}
-          >
-            <span style={{ fontSize: 14, color: '#9CA3AF', fontWeight: 500 }}>Rechercher un site…</span>
-          </div>
-          <div style={{ width: 1, height: 20, background: '#E5E7EB', flexShrink: 0 }} />
-          <button
-            onClick={() => {
-              SpeechRecognition.startListening({ language: 'fr-FR', continuous: true })
-              setShowVoiceSearch(true)
-            }}
-            style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              width: 36, height: 36, borderRadius: '50%', border: 'none', cursor: 'pointer', flexShrink: 0,
-              background: '#1D4ED8',
-            }}
-          >
-            <Mic size={17} strokeWidth={2} style={{ color: 'white' }} />
-          </button>
+          <span style={{ flex: 1, fontSize: 14, color: '#9CA3AF', fontWeight: 500, userSelect: 'none' }}>Rechercher un site…</span>
         </div>
-        <style>{`@keyframes micPulse{0%{box-shadow:0 0 0 0 rgba(239,68,68,0.5)}70%{box-shadow:0 0 0 8px rgba(239,68,68,0)}100%{box-shadow:0 0 0 0 rgba(239,68,68,0)}}`}</style>
 
         {/* Légende commerciaux — sous la barre de recherche */}
         <div style={{
