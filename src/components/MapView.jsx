@@ -357,17 +357,41 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
     )
   }
 
-  // CSS strings réutilisables pour les hauteurs des barres
-  const safeBot = 'env(safe-area-inset-bottom, 0px)'
-  const safeBotNum = `calc(${NAV_H}px + ${safeBot})`
-  // La carte occupe la fenêtre entre la top bar et la nav bar — zone explicitement bornée
-  const mapTop    = TOP_H
-  const mapBottom = safeBotNum
+  const NAV_BTN = {
+    flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
+    justifyContent: 'center', gap: 3, padding: '8px 2px',
+    background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280',
+  }
+  const NAV_LBL = { fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }
+
+  // Boutons de la nav bar — partagés entre les deux positions possibles
+  const navButtons = (
+    <>
+      <button onClick={() => setShowSearch('text')} style={NAV_BTN} >
+        <Search size={20} strokeWidth={2} /><span style={NAV_LBL}>Rechercher</span>
+      </button>
+      <button onClick={() => setShowSearch('voice')} style={NAV_BTN}>
+        <Mic size={20} strokeWidth={2} /><span style={NAV_LBL}>Dicter</span>
+      </button>
+      <button onClick={handleAddHere} style={{ ...NAV_BTN, color: '#1D4ED8' }}>
+        <Plus size={20} strokeWidth={2.5} /><span style={NAV_LBL}>Ajouter</span>
+      </button>
+      <button onClick={() => setMapStyle(s => s === 'street' ? 'satellite' : 'street')} style={{ ...NAV_BTN, color: mapStyle === 'satellite' ? '#1D4ED8' : '#6B7280' }}>
+        <Layers size={20} strokeWidth={2} /><span style={NAV_LBL}>{mapStyle === 'satellite' ? 'Plan' : 'Satellite'}</span>
+      </button>
+      <button onClick={handleLocateMe} style={NAV_BTN}>
+        <Navigation size={20} strokeWidth={2} style={{ color: userPosition ? '#1D4ED8' : '#6B7280' }} /><span style={NAV_LBL}>Localiser</span>
+      </button>
+      <button onClick={() => setShowSidebar(true)} style={NAV_BTN}>
+        <Menu size={20} strokeWidth={2} /><span style={NAV_LBL}>Menu</span>
+      </button>
+    </>
+  )
 
   return (
-    <div style={{ height: '100dvh', overflow: 'hidden' }}>
+    <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
-      {/* ── Overlay recherche (text ou vocal) — z-index max ───── */}
+      {/* ── Overlays (rendus avant tout, z-index élevé) ─────────── */}
       {showSearch && (
         <SearchBar
           sites={sites}
@@ -385,62 +409,52 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           onClose={() => setShowSearch(false)}
         />
       )}
-
-      {/* ── Modal navigation vocale ────────────────────────────── */}
       {voiceNavSite && (
-        <VoiceNavModal
-          site={voiceNavSite}
-          onClose={() => setVoiceNavSite(null)}
-        />
+        <VoiceNavModal site={voiceNavSite} onClose={() => setVoiceNavSite(null)} />
       )}
 
-      {/* ── Barre du haut (fixed) ──────────────────────────────── */}
-      <div
-        style={{
-          position: 'fixed', top: 0, left: 0, right: 0,
-          height: TOP_H, zIndex: 1100,
-          background: '#172554',  // blue-950
-          display: 'flex', alignItems: 'center',
-          gap: 12, padding: '0 16px',
-          boxShadow: '0 2px 16px rgba(0,0,0,0.3)',
-        }}
-      >
+      {/* ── Barre du haut ──────────────────────────────────────── */}
+      <div style={{
+        flexShrink: 0,
+        background: '#172554',
+        display: 'flex', alignItems: 'center',
+        gap: 12, padding: '10px 16px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+      }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <p style={{ fontWeight: 800, fontSize: 15, color: 'white', lineHeight: 1.2 }}>GNC Map</p>
-          <p style={{ fontSize: 11, color: '#93C5FD' }}>Groupe Nord Coffrage</p>
+          <p style={{ fontWeight: 800, fontSize: 15, color: 'white', lineHeight: 1.2, margin: 0 }}>GNC Map</p>
+          <p style={{ fontSize: 11, color: '#93C5FD', margin: 0 }}>Groupe Nord Coffrage</p>
         </div>
-        <button
-          onClick={onSwitch}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            background: 'rgba(255,255,255,0.12)', borderRadius: 12,
-            padding: '6px 12px', border: 'none', cursor: 'pointer',
-          }}
-        >
+        <button onClick={onSwitch} style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          background: 'rgba(255,255,255,0.12)', borderRadius: 12,
+          padding: '6px 12px', border: 'none', cursor: 'pointer',
+        }}>
           <div style={{
-            width: 24, height: 24, borderRadius: 8,
-            background: commercial.color,
+            width: 24, height: 24, borderRadius: 8, background: commercial.color,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             color: 'white', fontWeight: 700, fontSize: 12,
-          }}>
-            {commercial.name.charAt(0).toUpperCase()}
-          </div>
+          }}>{commercial.name.charAt(0).toUpperCase()}</div>
           <span style={{ color: 'white', fontSize: 12, fontWeight: 600 }}>{firstName(commercial.name)}</span>
         </button>
       </div>
 
-      {/* ── Zone carte — bornée explicitement entre les deux barres ─ */}
-      <div
-        style={{
-          position: 'fixed',
-          top: mapTop,
-          bottom: mapBottom,
-          left: 0,
-          right: 0,
-          zIndex: 100,
-        }}
-      >
-        {/* Sidebar overlay */}
+      {/* ── NAV BAR dans le flux — rendue AVANT la carte ─────────
+          Positionnée ici = DOM au-dessus du canvas WebGL = toujours visible.
+      ──────────────────────────────────────────────────────────── */}
+      <div style={{
+        flexShrink: 0,
+        background: 'white',
+        borderBottom: '2px solid #1D4ED8',
+        display: 'flex',
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+      }}>
+        {navButtons}
+      </div>
+
+      {/* ── Carte — prend tout l'espace restant ────────────────── */}
+      <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
+
         {showSidebar && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', zIndex: 1200 }}>
             <Sidebar
@@ -465,7 +479,6 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           </div>
         )}
 
-        {/* Aide localisation */}
         {showLocationHelp && (
           <div style={{
             position: 'absolute', inset: 0, zIndex: 2000,
@@ -479,21 +492,20 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
                   <X size={18} className="text-gray-400" />
                 </button>
               </div>
-              <p className="text-sm text-gray-600 mb-3">Votre navigateur bloque la localisation. Pour l'activer :</p>
+              <p className="text-sm text-gray-600 mb-3">Pour l'activer :</p>
               <ol className="text-sm text-gray-700 space-y-2 mb-4 list-decimal ml-4">
-                <li><strong>iPhone / iPad :</strong> Réglages → Confidentialité → Service de localisation → Safari → Autoriser</li>
-                <li><strong>Android Chrome :</strong> Appuyer sur 🔒 dans la barre d'adresse → Position</li>
+                <li><strong>iPhone :</strong> Réglages → Confidentialité → Service de localisation → Safari → Autoriser</li>
+                <li><strong>Android :</strong> Appuyer sur 🔒 dans la barre d'adresse → Position</li>
               </ol>
-              <button
-                onClick={() => { setShowLocationHelp(false); setTimeout(handleLocateMe, 200) }}
-                className="w-full py-3 bg-blue-700 text-white rounded-2xl font-semibold text-sm mb-2"
-              >Réessayer</button>
+              <button onClick={() => { setShowLocationHelp(false); setTimeout(handleLocateMe, 200) }}
+                className="w-full py-3 bg-blue-700 text-white rounded-2xl font-semibold text-sm mb-2">
+                Réessayer
+              </button>
               <button onClick={() => setShowLocationHelp(false)} className="w-full py-2 text-gray-400 text-sm">Fermer</button>
             </div>
           </div>
         )}
 
-        {/* Carte MapLibre GL */}
         <ReactMap
           ref={mapRef}
           initialViewState={getSavedView() ?? { longitude: 5.9, latitude: 46.5, zoom: 9 }}
@@ -519,38 +531,27 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
             </Marker>
           )}
           {filtered.map(site => (
-            <SiteMarker
-              key={site.id}
-              site={site}
-              color={getColor(site.commercial_id)}
-              onSelect={handleSelectSite}
-            />
+            <SiteMarker key={site.id} site={site} color={getColor(site.commercial_id)} onSelect={handleSelectSite} />
           ))}
         </ReactMap>
 
-        {/* Légende commerciaux — haut gauche */}
+        {/* Légende */}
         <div style={{
-          position: 'absolute', top: 12, left: 12, zIndex: 1000,
-          background: 'rgba(255,255,255,0.95)',
-          backdropFilter: 'blur(4px)',
-          borderRadius: 16, padding: '6px 12px',
-          display: 'flex', alignItems: 'center', gap: 12,
+          position: 'absolute', top: 10, left: 10, zIndex: 500,
+          background: 'rgba(255,255,255,0.95)', borderRadius: 14,
+          padding: '5px 10px', display: 'flex', alignItems: 'center', gap: 10,
           boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
         }}>
           {allCommercials.map(c => (
-            <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <div style={{ width: 10, height: 10, borderRadius: '50%', background: c.color, flexShrink: 0 }} />
+            <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <div style={{ width: 9, height: 9, borderRadius: '50%', background: c.color }} />
               <span style={{ fontSize: 11, fontWeight: 600, color: '#374151' }}>{firstName(c.name)}</span>
             </div>
           ))}
         </div>
 
-        {/* Panneau détail site */}
         {selectedSite && (
-          <div style={{
-            position: 'absolute', top: 0, bottom: 0, right: 0,
-            width: '100%', maxWidth: 420, zIndex: 1050,
-          }}>
+          <div style={{ position: 'absolute', inset: 0, right: 0, width: '100%', maxWidth: 420, zIndex: 1050 }}>
             <SiteDetailPanel
               site={selectedSite}
               commercial={allCommercials.find(c => c.id === selectedSite.commercial_id)}
@@ -571,102 +572,6 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           </div>
         )}
       </div>
-
-      {/* ── Barre de navigation (fixed, z-index très élevé) ───────
-          Rendue EN DEHORS du contexte de la carte pour qu'aucun
-          canvas WebGL ne puisse la recouvrir.
-      ─────────────────────────────────────────────────────────── */}
-      <div
-        style={{
-          position: 'fixed',
-          bottom: 0, left: 0, right: 0,
-          zIndex: 9000,
-          background: 'white',
-          borderTop: '1px solid #e5e7eb',
-          boxShadow: '0 -4px 24px rgba(0,0,0,0.12)',
-          paddingBottom: safeBot,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'flex-end', height: NAV_H }}>
-
-          <button
-            onClick={() => setShowSearch('text')}
-            style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, height: '100%', background: 'none', border: 'none', cursor: 'pointer', color: '#1D4ED8' }}
-          >
-            <Search size={22} strokeWidth={2} />
-            <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Rechercher</span>
-          </button>
-
-          <button
-            onClick={() => setShowSearch('voice')}
-            style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, height: '100%', background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280' }}
-          >
-            <Mic size={22} strokeWidth={2} />
-            <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Dicter</span>
-          </button>
-
-          {/* Bouton central saillant */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', paddingBottom: 8, paddingLeft: 8, paddingRight: 8 }}>
-            <button
-              onClick={handleAddHere}
-              style={{
-                width: 60, height: 60,
-                background: '#1D4ED8',
-                borderRadius: '50%',
-                border: '4px solid white',
-                marginTop: -24,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: 'white',
-                boxShadow: '0 4px 16px rgba(29,78,216,0.4)',
-                cursor: 'pointer',
-                flexShrink: 0,
-              }}
-            >
-              <Plus size={28} strokeWidth={2.5} />
-            </button>
-            <span style={{ fontSize: 10, fontWeight: 600, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 4 }}>Ajouter</span>
-          </div>
-
-          <button
-            onClick={() => setMapStyle(s => s === 'street' ? 'satellite' : 'street')}
-            style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, height: '100%', background: 'none', border: 'none', cursor: 'pointer', color: mapStyle === 'satellite' ? '#1D4ED8' : '#6B7280' }}
-          >
-            <Layers size={22} strokeWidth={2} />
-            <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              {mapStyle === 'satellite' ? 'Plan' : 'Satellite'}
-            </span>
-          </button>
-
-          <button
-            onClick={() => setShowSidebar(true)}
-            style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, height: '100%', background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280' }}
-          >
-            <Menu size={22} strokeWidth={2} />
-            <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Menu</span>
-          </button>
-
-        </div>
-      </div>
-
-      {/* Bouton Localiser flottant */}
-      <button
-        onClick={handleLocateMe}
-        style={{
-          position: 'fixed',
-          bottom: `calc(${NAV_H}px + ${safeBot} + 12px)`,
-          right: 16,
-          zIndex: 8900,
-          width: 44, height: 44,
-          background: 'white',
-          border: '1px solid #e5e7eb',
-          borderRadius: '50%',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          boxShadow: '0 2px 12px rgba(0,0,0,0.15)',
-          cursor: 'pointer',
-        }}
-      >
-        <Navigation size={20} strokeWidth={2} style={{ color: userPosition ? '#1D4ED8' : '#6B7280' }} />
-      </button>
 
       {showAddModal && (
         <AddSiteModal
