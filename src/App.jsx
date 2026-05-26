@@ -22,9 +22,7 @@ function SetupError() {
         <div className="bg-slate-900 rounded-2xl p-4 text-sm font-mono text-green-400 space-y-1 mb-6">
           <p className="text-slate-400 text-xs mb-2"># Variables à ajouter dans Vercel</p>
           <p>VITE_SUPABASE_URL</p>
-          <p>SUPABASE_ANON_KEY</p>
-          <p>SUPABASE_JWT_SECRET</p>
-          <p>APP_PASSWORD</p>
+          <p>VITE_SUPABASE_ANON_KEY</p>
         </div>
 
         <ol className="text-sm text-gray-600 space-y-3">
@@ -48,7 +46,8 @@ function SetupError() {
 
         <div className="mt-6 bg-amber-50 border border-amber-200 rounded-xl p-3">
           <p className="text-xs text-amber-700">
-            ⚠️ <code>SUPABASE_JWT_SECRET</code> se trouve dans Supabase → Settings → API → JWT Settings.
+            ⚠️ Utilisez la clé <strong>anon public</strong> (commence par <code>eyJ...</code>),
+            pas la clé secrète.
           </p>
         </div>
       </div>

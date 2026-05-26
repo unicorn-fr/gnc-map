@@ -1,21 +1,26 @@
 import { useState } from 'react'
 import { Lock } from 'lucide-react'
-import { authenticate } from '../lib/supabase'
 
-export { hasValidToken as validToken } from '../lib/supabase'
+const AUTH_KEY = 'gnc_auth_v1'
+
+function validToken() {
+  const pwd = import.meta.env.VITE_APP_PASSWORD
+  if (!pwd) return true
+  return localStorage.getItem(AUTH_KEY) === btoa(pwd)
+}
+
+export { validToken }
 
 export default function PasswordGate({ onUnlock }) {
   const [input, setInput] = useState('')
   const [error, setError] = useState(false)
-  const [loading, setLoading] = useState(false)
   const [shake, setShake] = useState(false)
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault()
-    setLoading(true)
-    const ok = await authenticate(input)
-    setLoading(false)
-    if (ok) {
+    const pwd = import.meta.env.VITE_APP_PASSWORD
+    if (!pwd || input === pwd) {
+      localStorage.setItem(AUTH_KEY, btoa(pwd || ''))
       onUnlock()
     } else {
       setError(true)
@@ -60,7 +65,6 @@ export default function PasswordGate({ onUnlock }) {
             placeholder="Mot de passe"
             autoFocus
             autoComplete="current-password"
-            disabled={loading}
             style={{
               flex: 1, background: 'transparent', border: 'none', outline: 'none',
               color: 'white', fontSize: 16, fontWeight: 500,
@@ -76,15 +80,13 @@ export default function PasswordGate({ onUnlock }) {
 
         <button
           type="submit"
-          disabled={loading}
           style={{
             width: '100%', padding: '15px', borderRadius: 16,
-            background: loading ? '#1e3a8a' : '#1D4ED8', border: 'none', cursor: loading ? 'default' : 'pointer',
+            background: '#1D4ED8', border: 'none', cursor: 'pointer',
             color: 'white', fontSize: 16, fontWeight: 700,
-            opacity: loading ? 0.8 : 1,
           }}
         >
-          {loading ? 'Vérification…' : 'Accéder à la carte'}
+          Accéder à la carte
         </button>
       </form>
 
