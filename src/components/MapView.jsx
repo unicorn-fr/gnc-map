@@ -67,7 +67,7 @@ const SiteMarker = memo(function SiteMarker({ site, color, onSelect }) {
 })
 
 export default function MapView({ commercial, onSwitch, installPrompt, onInstalled }) {
-  const [allCommercials, setAllCommercials] = useState(() => getCachedAppData()?.comms ?? COMMERCIALS)
+  const [allCommercials, setAllCommercials] = useState(() => { const c = getCachedAppData()?.comms; return c?.length ? c : COMMERCIALS })
   const [sites, setSites] = useState(() => (getCachedAppData()?.sites ?? []).filter(s => !s.deleted))
   const [selectedSite, setSelectedSite] = useState(null)
   const [showAddModal, setShowAddModal] = useState(false)
@@ -179,7 +179,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
       supabase.from('commercials').select('*').order('created_at'),
       supabase.from('sites').select('*').order('created_at', { ascending: false }),
     ])
-    if (comms) {
+    if (comms?.length) {
       setAllCommercials(comms)
       setVisibleCommercials(prev => {
         if (prev.size === 0) return new Set(comms.map(c => c.id))
@@ -198,7 +198,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         })
       })
     }
-    if (comms && sitesData) {
+    if (comms?.length && sitesData) {
       try { localStorage.setItem(APP_CACHE_KEY, JSON.stringify({ comms, sites: sitesData })) } catch {}
     }
   }, [])
