@@ -1,11 +1,12 @@
 import { useEffect, useState, useCallback, useRef, useMemo, memo } from 'react'
 import ReactMap, { Marker } from 'react-map-gl/maplibre'
-import { Menu, Plus, Navigation, X } from 'lucide-react'
+import { Menu, Plus, Navigation, X, Search } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { requestAndSubscribe } from '../lib/push'
 import { firstName } from '../lib/utils'
 import { COMMERCIALS } from '../lib/commercials'
 import Sidebar from './Sidebar'
+import SearchBar from './SearchBar'
 import AddSiteModal from './AddSiteModal'
 import SiteDetailPanel from './SiteDetailPanel'
 import ImportPage from './ImportPage'
@@ -79,6 +80,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
   const [visibleTypes, setVisibleTypes] = useState(new Set(['siege', 'chantier']))
   const [flyTo, setFlyTo] = useState(null)
   const [mapStyle, setMapStyle] = useState('street')
+  const [showSearch, setShowSearch] = useState(false)
   const mapRef = useRef(null)
   const watchIdRef = useRef(null)
   const pendingSiteIdRef = useRef(null)
@@ -333,9 +335,13 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         <button onClick={() => setShowSidebar(true)} className="p-2 hover:bg-blue-800 rounded-xl transition-colors">
           <Menu size={20} />
         </button>
-        <div className="flex-1 min-w-0">
-          <p className="font-extrabold text-base leading-tight tracking-tight">GNC Map</p>
-        </div>
+        <button
+          onClick={() => setShowSearch(true)}
+          className="flex-1 flex items-center gap-2 bg-white/10 hover:bg-white/20 rounded-xl px-3 py-2 transition-colors text-left min-w-0"
+        >
+          <Search size={15} className="text-white/60 flex-shrink-0" />
+          <span className="text-white/50 text-sm truncate">Rechercher…</span>
+        </button>
         <button
           onClick={onSwitch}
           className="flex items-center gap-2 bg-white/10 hover:bg-white/20 rounded-xl px-3 py-1.5 transition-colors"
@@ -353,6 +359,19 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
       </div>
 
       <div className="flex-1 relative" style={{ minHeight: 0 }}>
+
+        {showSearch && (
+          <SearchBar
+            sites={sites}
+            allCommercials={allCommercials}
+            getColor={getColor}
+            onSelectSite={(site) => {
+              setSelectedSite(site)
+              if (site.lat && site.lng) setFlyTo({ lat: site.lat, lng: site.lng })
+            }}
+            onClose={() => setShowSearch(false)}
+          />
+        )}
 
         {showSidebar && (
           <div className="absolute inset-0 flex" style={{ zIndex: 1200 }}>
