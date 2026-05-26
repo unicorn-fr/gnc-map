@@ -1,10 +1,11 @@
-import { useRef, useState, useMemo } from 'react'
-import { X, Mic, MapPin } from 'lucide-react'
+import { useEffect, useMemo } from 'react'
+import SpeechRecognition, { useSpeechRecognition } from 'react-speech-recognition'
+import { X, Mic, MicOff, MapPin } from 'lucide-react'
 import { firstName } from '../lib/utils'
 
 const norm = s => (s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
 
-function score(site, q, commName) {
+function scoreVoice(site, q, commName) {
   if (!q) return 0
   const words = q.split(/\s+/).filter(w => w.length > 1)
   let total = 0
@@ -24,16 +25,19 @@ function score(site, q, commName) {
 }
 
 const BADGE = {
-  prospect: { label: 'Prospect',  bg: '#F3F4F6', color: '#6B7280' },
-  client:   { label: 'Client',    bg: '#D1FAE5', color: '#065F46' },
-  en_cours: { label: 'En cours',  bg: '#DBEAFE', color: '#1D4ED8' },
-  termine:  { label: 'Terminé',   bg: '#F1F5F9', color: '#64748B' },
+  prospect: { label: 'Prospect', bg: '#F3F4F6', color: '#6B7280' },
+  client:   { label: 'Client',   bg: '#D1FAE5', color: '#065F46' },
+  en_cours: { label: 'En cours', bg: '#DBEAFE', color: '#1D4ED8' },
+  termine:  { label: 'Terminé',  bg: '#F1F5F9', color: '#64748B' },
 }
 
-export default function VoiceSearchModal({ sites, allCommercials, getColor, onSelectSite, onClose, initialTranscript = '' }) {
-  const [phase, setPhase] = useState(initialTranscript ? 'results' : 'ready')
-  const [transcript, setTranscript] = useState(initialTranscript)
-  const recogRef = useRef(null)
+export default function VoiceSearchModal({ sites, allCommercials, getColor, onSelectSite, onClose }) {
+  const {
+    transcript,
+    listening,
+    resetTranscript,
+    browserSupportsSpeechRecognition,
+  } = useSpeechRecognition()
 
   const commercialMap = useMemo(() => {
     const m = {}
@@ -41,53 +45,38 @@ export default function VoiceSearchModal({ sites, allCommercials, getColor, onSe
     return m
   }, [allCommercials])
 
+  // Démarrer l'écoute dès l'ouverture du modal
+  useEffect(() => {
+    resetTranscript()
+    SpeechRecognition.startListening({ language: 'fr-FR', continuous: false })
+    return () => SpeechRecognition.stopListening()
+  }, [])
+
   const results = useMemo(() => {
     const q = norm(transcript)
-    if (!q) return []
+    if (!q || q.length < 2) return []
     return sites
       .filter(s => !s.deleted)
-      .map(s => ({ site: s, sc: score(s, q, commercialMap[s.commercial_id]?.name ?? '') }))
+      .map(s => ({ site: s, sc: scoreVoice(s, q, commercialMap[s.commercial_id]?.name ?? '') }))
       .filter(r => r.sc > 0)
       .sort((a, b) => b.sc - a.sc)
       .slice(0, 8)
       .map(r => r.site)
   }, [transcript, sites, commercialMap])
 
-  // appelé directement depuis un onClick — geste utilisateur direct
-  const startListening = () => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SR) return
-    if (recogRef.current) { try { recogRef.current.abort() } catch {} }
-
-    const recog = new SR()
-    recog.lang = 'fr-FR'
-    recog.interimResults = true
-    recog.maxAlternatives = 1
-
-    recog.onstart = () => setPhase('listening')
-
-    recog.onresult = (e) => {
-      let final = '', interim = ''
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const t = e.results[i][0].transcript
-        if (e.results[i].isFinal) final += t
-        else interim += t
-      }
-      if (final) { setTranscript(final); setPhase('results') }
-      else if (interim) setTranscript(interim)
-    }
-
-    recog.onerror = () => setPhase('ready')
-    recog.onend = () => setPhase(p => p === 'listening' ? 'results' : p)
-
-    recog.start()
-    recogRef.current = recog
+  const handleSelect = (site) => {
+    SpeechRecognition.stopListening()
+    onSelectSite(site)
+    onClose()
   }
 
-  const handleSelect = (site) => { onSelectSite(site); onClose() }
+  const handleRetry = () => {
+    resetTranscript()
+    SpeechRecognition.startListening({ language: 'fr-FR', continuous: false })
+  }
 
-  const isListening = phase === 'listening'
-  const isResults  = phase === 'results'
+  const hasTranscript = transcript.trim().length > 0
+  const showResults  = hasTranscript && !listening
 
   return (
     <div
@@ -100,7 +89,7 @@ export default function VoiceSearchModal({ sites, allCommercials, getColor, onSe
     >
       {/* Panneau haut */}
       <div
-        style={{ background: 'white', borderRadius: '0 0 28px 28px', paddingBottom: 24 }}
+        style={{ background: 'white', borderRadius: '0 0 28px 28px', paddingBottom: 20 }}
         onClick={e => e.stopPropagation()}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 16px 0' }}>
@@ -110,62 +99,70 @@ export default function VoiceSearchModal({ sites, allCommercials, getColor, onSe
           </button>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '28px 16px 8px' }}>
-          {/* Gros bouton micro — le onClick démarre directement la reconnaissance */}
-          <button
-            onClick={startListening}
-            style={{
-              width: 88, height: 88, borderRadius: '50%',
-              border: 'none', cursor: isListening ? 'default' : 'pointer',
-              background: isListening ? '#EF4444' : '#1D4ED8',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: isListening
-                ? '0 0 0 0 rgba(239,68,68,0.4)'
-                : '0 6px 24px rgba(29,78,216,0.45)',
-              animation: isListening ? 'micPulse 1s ease-in-out infinite' : 'none',
-              transition: 'background 0.2s, box-shadow 0.2s',
-            }}
-          >
-            <Mic size={38} color="white" strokeWidth={2} />
-          </button>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '24px 16px 12px' }}>
 
-          <p style={{
-            marginTop: 18, fontSize: 15, fontWeight: 600, textAlign: 'center',
-            color: isListening ? '#EF4444' : isResults ? '#111827' : '#6B7280',
-          }}>
-            {phase === 'ready'    && 'Appuyez pour parler'}
-            {phase === 'listening' && 'Je vous écoute…'}
-            {phase === 'results'  && (transcript || 'Aucune parole détectée')}
-          </p>
+          {!browserSupportsSpeechRecognition ? (
+            <p style={{ color: '#EF4444', fontSize: 14, textAlign: 'center' }}>
+              Votre navigateur ne supporte pas la reconnaissance vocale.<br />
+              Utilisez Chrome (Android) ou Safari (iPhone).
+            </p>
+          ) : (
+            <>
+              {/* Bouton micro — tap pour démarrer / arrêter */}
+              <button
+                onClick={listening
+                  ? () => SpeechRecognition.stopListening()
+                  : handleRetry
+                }
+                style={{
+                  width: 80, height: 80, borderRadius: '50%',
+                  border: 'none', cursor: 'pointer',
+                  background: listening ? '#EF4444' : '#1D4ED8',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  boxShadow: listening ? 'none' : '0 6px 24px rgba(29,78,216,0.4)',
+                  animation: listening ? 'micPulse 1s ease-in-out infinite' : 'none',
+                  transition: 'background 0.2s',
+                }}
+              >
+                {listening
+                  ? <MicOff size={34} color="white" strokeWidth={2} />
+                  : <Mic    size={34} color="white" strokeWidth={2} />
+                }
+              </button>
 
-          {isResults && (
-            <button
-              onClick={startListening}
-              style={{
-                marginTop: 8, padding: '6px 18px', background: '#F3F4F6',
-                border: 'none', borderRadius: 20, cursor: 'pointer',
-                fontSize: 13, color: '#374151', fontWeight: 500,
-              }}
-            >
-              Réessayer
-            </button>
+              <p style={{
+                marginTop: 16, fontSize: 15, fontWeight: 600, textAlign: 'center', minHeight: 24,
+                color: listening ? '#EF4444' : hasTranscript ? '#111827' : '#6B7280',
+              }}>
+                {listening && !transcript && 'Je vous écoute…'}
+                {listening && transcript  && transcript}
+                {!listening && !hasTranscript && 'Appuyez pour parler'}
+                {!listening && hasTranscript && transcript}
+              </p>
+
+              {showResults && (
+                <button
+                  onClick={handleRetry}
+                  style={{
+                    marginTop: 4, padding: '5px 16px', background: '#F3F4F6',
+                    border: 'none', borderRadius: 20, cursor: 'pointer',
+                    fontSize: 12, color: '#374151', fontWeight: 500,
+                  }}
+                >
+                  🔄 Réessayer
+                </button>
+              )}
+            </>
           )}
         </div>
       </div>
 
       {/* Résultats */}
-      {isResults && results.length > 0 && (
+      {showResults && results.length > 0 && (
         <div style={{ overflowY: 'auto', flex: 1, marginTop: 10 }} onClick={e => e.stopPropagation()}>
-          {results.length === 1 && (
-            <p style={{ textAlign: 'center', color: '#93C5FD', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
-              1 résultat trouvé
-            </p>
-          )}
-          {results.length > 1 && (
-            <p style={{ textAlign: 'center', color: '#93C5FD', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
-              {results.length} résultats — choisissez :
-            </p>
-          )}
+          <p style={{ textAlign: 'center', color: '#93C5FD', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+            {results.length === 1 ? '1 résultat' : `${results.length} résultats — choisissez :`}
+          </p>
           <div style={{ background: 'white', borderRadius: 20, overflow: 'hidden' }}>
             {results.map((site, idx) => {
               const comm  = commercialMap[site.commercial_id]
@@ -208,9 +205,7 @@ export default function VoiceSearchModal({ sites, allCommercials, getColor, onSe
                         {badge.label}
                       </span>
                     )}
-                    {comm && (
-                      <span style={{ fontSize: 10, color: '#9CA3AF' }}>{firstName(comm.name)}</span>
-                    )}
+                    {comm && <span style={{ fontSize: 10, color: '#9CA3AF' }}>{firstName(comm.name)}</span>}
                   </div>
                 </button>
               )
@@ -219,15 +214,14 @@ export default function VoiceSearchModal({ sites, allCommercials, getColor, onSe
         </div>
       )}
 
-      {isResults && transcript && results.length === 0 && (
+      {showResults && hasTranscript && results.length === 0 && (
         <div
           style={{ background: 'white', margin: '10px 16px', borderRadius: 20, padding: '24px 16px', textAlign: 'center' }}
           onClick={e => e.stopPropagation()}
         >
           <p style={{ fontSize: 28, margin: '0 0 8px' }}>🔍</p>
           <p style={{ fontWeight: 700, color: '#374151', margin: 0 }}>Aucun résultat pour « {transcript} »</p>
-          <p style={{ fontSize: 13, color: '#9CA3AF', margin: '4px 0 16px' }}>Essayez un autre nom ou une ville</p>
-          <button onClick={startListening} style={{ padding: '10px 24px', background: '#1D4ED8', color: 'white', border: 'none', borderRadius: 14, cursor: 'pointer', fontWeight: 600, fontSize: 14 }}>
+          <button onClick={handleRetry} style={{ marginTop: 14, padding: '10px 24px', background: '#1D4ED8', color: 'white', border: 'none', borderRadius: 14, cursor: 'pointer', fontWeight: 600, fontSize: 14 }}>
             Réessayer
           </button>
         </div>
@@ -236,7 +230,7 @@ export default function VoiceSearchModal({ sites, allCommercials, getColor, onSe
       <style>{`
         @keyframes micPulse {
           0%   { box-shadow: 0 0 0 0   rgba(239,68,68,0.5); }
-          70%  { box-shadow: 0 0 0 20px rgba(239,68,68,0);   }
+          70%  { box-shadow: 0 0 0 20px rgba(239,68,68,0);  }
           100% { box-shadow: 0 0 0 0   rgba(239,68,68,0);   }
         }
       `}</style>
