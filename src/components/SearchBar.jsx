@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { Search, X, MapPin, Mic, MicOff } from 'lucide-react'
+import { Search, X, MapPin, Mic } from 'lucide-react'
 import { firstName } from '../lib/utils'
 
 const norm = s => (s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
@@ -58,18 +58,14 @@ const STATUS_BADGE = {
   termine:  { label: 'Terminé',   cls: 'bg-slate-100 text-slate-500' },
 }
 
-export default function SearchBar({ sites, allCommercials, getColor, onSelectSite, onClose, autoVoice }) {
-  const [query, setQuery] = useState('')
+export default function SearchBar({ sites, allCommercials, getColor, onSelectSite, onClose, initialQuery = '' }) {
+  const [query, setQuery] = useState(initialQuery)
   const [listening, setListening] = useState(false)
   const inputRef = useRef(null)
   const recogRef = useRef(null)
 
   useEffect(() => {
-    if (autoVoice) {
-      startVoice()
-    } else {
-      inputRef.current?.focus()
-    }
+    inputRef.current?.focus()
   }, [])
 
   useEffect(() => {
@@ -80,35 +76,23 @@ export default function SearchBar({ sites, allCommercials, getColor, onSelectSit
 
   const startVoice = () => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SR) {
-      inputRef.current?.focus()
-      return
-    }
+    if (!SR) { inputRef.current?.focus(); return }
     const recog = new SR()
     recog.lang = 'fr-FR'
     recog.interimResults = true
     recog.maxAlternatives = 1
     recog.onstart = () => setListening(true)
     recog.onresult = (e) => {
-      let interim = ''
-      let final = ''
+      let interim = '', final = ''
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const t = e.results[i][0].transcript
         if (e.results[i].isFinal) final += t
         else interim += t
       }
-      if (final) {
-        setQuery(final)
-        setListening(false)
-      } else if (interim) {
-        setQuery(interim)
-      }
+      if (final) { setQuery(final); setListening(false) }
+      else if (interim) setQuery(interim)
     }
-    recog.onerror = (err) => {
-      console.warn('SpeechRecognition error:', err.error)
-      setListening(false)
-      inputRef.current?.focus()
-    }
+    recog.onerror = () => { setListening(false); inputRef.current?.focus() }
     recog.onend = () => setListening(false)
     recog.start()
     recogRef.current = recog
