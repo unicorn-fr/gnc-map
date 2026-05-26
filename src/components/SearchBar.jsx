@@ -101,8 +101,8 @@ export default function SearchBar({ sites, allCommercials, getColor, onSelectSit
 
   return (
     <div
-      className="absolute inset-0 flex flex-col"
-      style={{ zIndex: 2000, background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)' }}
+      className="fixed inset-0 flex flex-col"
+      style={{ zIndex: 3000, background: 'rgba(15,23,42,0.7)', backdropFilter: 'blur(4px)' }}
     >
       {/* Barre de recherche */}
       <div className="bg-white shadow-2xl">

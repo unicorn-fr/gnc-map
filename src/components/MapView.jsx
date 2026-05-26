@@ -330,17 +330,31 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
   return (
     <div style={{ height: '100dvh' }} className="flex flex-col">
 
+      {showSearch && (
+        <SearchBar
+          sites={sites}
+          allCommercials={allCommercials}
+          getColor={getColor}
+          onSelectSite={(site) => {
+            setSelectedSite(site)
+            if (site.lat && site.lng) setFlyTo({ lat: site.lat, lng: site.lng })
+            setShowSearch(false)
+          }}
+          onClose={() => setShowSearch(false)}
+        />
+      )}
+
       {/* Barre du haut */}
       <div className="flex-shrink-0 bg-blue-950 text-white px-4 py-3 flex items-center gap-3 shadow-xl" style={{ zIndex: 1100 }}>
-        <button onClick={() => setShowSidebar(true)} className="p-2 hover:bg-blue-800 rounded-xl transition-colors">
+        <button onClick={() => setShowSidebar(true)} className="p-2 hover:bg-blue-800 rounded-xl transition-colors flex-shrink-0">
           <Menu size={20} />
         </button>
         <button
           onClick={() => setShowSearch(true)}
-          className="flex-1 flex items-center gap-2 bg-white/10 hover:bg-white/20 rounded-xl px-3 py-2 transition-colors text-left min-w-0"
+          className="flex-1 flex items-center gap-2 bg-white rounded-xl px-3 py-2 transition-all active:scale-95 min-w-0 shadow-sm"
         >
-          <Search size={15} className="text-white/60 flex-shrink-0" />
-          <span className="text-white/50 text-sm truncate">Rechercher…</span>
+          <Search size={15} className="text-blue-600 flex-shrink-0" />
+          <span className="text-gray-400 text-sm truncate">Entreprise, ville, commercial…</span>
         </button>
         <button
           onClick={onSwitch}
@@ -359,19 +373,6 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
       </div>
 
       <div className="flex-1 relative" style={{ minHeight: 0 }}>
-
-        {showSearch && (
-          <SearchBar
-            sites={sites}
-            allCommercials={allCommercials}
-            getColor={getColor}
-            onSelectSite={(site) => {
-              setSelectedSite(site)
-              if (site.lat && site.lng) setFlyTo({ lat: site.lat, lng: site.lng })
-            }}
-            onClose={() => setShowSearch(false)}
-          />
-        )}
 
         {showSidebar && (
           <div className="absolute inset-0 flex" style={{ zIndex: 1200 }}>

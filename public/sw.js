@@ -1,5 +1,5 @@
-const CACHE = 'gnc-map-v15'
-const TILE_CACHE = 'gnc-tiles-v9'
+const CACHE = 'gnc-map-v16'
+const TILE_CACHE = 'gnc-tiles-v10'
 const STYLE_CACHE = 'gnc-styles-v1'
 
 self.addEventListener('install', e => {
@@ -16,61 +16,70 @@ self.addEventListener('activate', e => {
   )
 })
 
-// Précharge les 8 tuiles voisines (même zoom) d'une tuile vectorielle.
+function fetchAndCache(cache, url) {
+  return cache.match(url).then(hit => {
+    if (hit) return
+    fetch(url).then(r => { if (r.ok) try { cache.put(url, r) } catch {} }).catch(() => {})
+  })
+}
+
+// 8 tuiles voisines au même zoom — couvre le déplacement latéral.
 function prefetchVectorNeighbors(cache, url) {
   const m = url.pathname.match(/\/(\d+)\/(\d+)\/(\d+)\.pbf$/)
   if (!m) return
   const z = +m[1], x = +m[2], y = +m[3]
   if (z < 5 || z > 15) return
-  const basePath = url.pathname.replace(/\/\d+\/\d+\/\d+\.pbf$/, '')
-  const neighbors = [
-    [z, x-1, y-1], [z, x, y-1], [z, x+1, y-1],
-    [z, x-1, y  ],               [z, x+1, y  ],
-    [z, x-1, y+1], [z, x, y+1], [z, x+1, y+1],
-  ]
-  neighbors.forEach(([nz, nx, ny]) => {
-    const nUrl = `${url.origin}${basePath}/${nz}/${nx}/${ny}.pbf`
-    cache.match(nUrl).then(hit => {
-      if (!hit) fetch(nUrl).then(r => { if (r.ok) try { cache.put(nUrl, r) } catch {} }).catch(() => {})
-    })
-  })
+  const base = url.pathname.replace(/\/\d+\/\d+\/\d+\.pbf$/, '')
+  ;[
+    [x-1, y-1], [x, y-1], [x+1, y-1],
+    [x-1, y  ],            [x+1, y  ],
+    [x-1, y+1], [x, y+1], [x+1, y+1],
+  ].forEach(([nx, ny]) => fetchAndCache(cache, `${url.origin}${base}/${z}/${nx}/${ny}.pbf`))
 }
 
-// Précharge les tuiles parents (zoom-1 et zoom-2) comme couche de repli.
+// 2 niveaux de parents — couche de repli pour le zoom arrière.
+// MapLibre les affiche instantanément pendant que les tuiles détaillées chargent.
 function prefetchParentTiles(cache, url) {
   const m = url.pathname.match(/\/(\d+)\/(\d+)\/(\d+)\.pbf$/)
   if (!m) return
   const z = +m[1], x = +m[2], y = +m[3]
   if (z < 2) return
-  const basePath = url.pathname.replace(/\/\d+\/\d+\/\d+\.pbf$/, '')
-  const parents = [
-    [z - 1, Math.floor(x / 2), Math.floor(y / 2)],
-    [z - 2, Math.floor(x / 4), Math.floor(y / 4)],
+  const base = url.pathname.replace(/\/\d+\/\d+\/\d+\.pbf$/, '')
+  ;[
+    [z-1, x>>1,  y>>1 ],
+    [z-2, x>>2,  y>>2 ],
   ].filter(([pz]) => pz >= 0)
-  parents.forEach(([pz, px, py]) => {
-    const pUrl = `${url.origin}${basePath}/${pz}/${px}/${py}.pbf`
-    cache.match(pUrl).then(hit => {
-      if (!hit) fetch(pUrl).then(r => { if (r.ok) try { cache.put(pUrl, r) } catch {} }).catch(() => {})
-    })
-  })
+   .forEach(([pz, px, py]) => fetchAndCache(cache, `${url.origin}${base}/${pz}/${px}/${py}.pbf`))
 }
 
-// Précharge les 4 tuiles enfants (zoom+1) d'une tuile OSM raster.
+// 4 tuiles enfants (zoom+1) — couche de zoom avant.
+// Quand l'utilisateur zoome, les tuiles filles sont déjà en cache → zéro blanc.
+function prefetchVectorChildren(cache, url) {
+  const m = url.pathname.match(/\/(\d+)\/(\d+)\/(\d+)\.pbf$/)
+  if (!m) return
+  const z = +m[1], x = +m[2], y = +m[3]
+  if (z < 5 || z > 13) return   // inutile de précharger au-delà de z14
+  const base = url.pathname.replace(/\/\d+\/\d+\/\d+\.pbf$/, '')
+  const cz = z + 1, cx = x * 2, cy = y * 2
+  ;[
+    [cx,   cy  ], [cx+1, cy  ],
+    [cx,   cy+1], [cx+1, cy+1],
+  ].forEach(([nx, ny]) => fetchAndCache(cache, `${url.origin}${base}/${cz}/${nx}/${ny}.pbf`))
+}
+
+// Tuiles enfants OSM raster (zoom+1).
 function prefetchOsmChildren(cache, url) {
   const m = url.pathname.match(/\/(\d+)\/(\d+)\/(\d+)\.png$/)
   if (!m) return
   const z = +m[1], x = +m[2], y = +m[3]
   if (z < 5 || z > 15) return
   const subs = ['a', 'b', 'c']
-  const children = [
-    [z+1, 2*x,   2*y  ], [z+1, 2*x+1, 2*y  ],
-    [z+1, 2*x,   2*y+1], [z+1, 2*x+1, 2*y+1],
-  ]
-  children.forEach(([cz, cx, cy], i) => {
-    const childUrl = `https://${subs[i % 3]}.tile.openstreetmap.org/${cz}/${cx}/${cy}.png`
-    cache.match(childUrl).then(hit => {
-      if (!hit) fetch(childUrl).then(r => { if (r.ok) cache.put(childUrl, r) }).catch(() => {})
-    })
+  ;[
+    [2*x,   2*y  ], [2*x+1, 2*y  ],
+    [2*x,   2*y+1], [2*x+1, 2*y+1],
+  ].forEach(([cx, cy], i) => {
+    const u = `https://${subs[i%3]}.tile.openstreetmap.org/${z+1}/${cx}/${cy}.png`
+    fetchAndCache(cache, u)
   })
 }
 
@@ -83,9 +92,8 @@ function latLngToTile(lat, lng, z) {
   return { x, y }
 }
 
-// Télécharge une boîte de tuiles en parallèle (batchSize à la fois).
-// Saute les tuiles déjà en cache → ultra-rapide après la première fois.
-async function prewarmBox(cache, north, south, west, east, origin, path, zMin, zMax, batchSize = 4) {
+// Télécharge une boîte de tuiles en parallèle — saute les tuiles déjà en cache.
+async function prewarmBox(cache, north, south, west, east, origin, path, zMin, zMax, batchSize = 6) {
   for (let z = zMin; z <= zMax; z++) {
     const tl = latLngToTile(north, west, z)
     const br = latLngToTile(south, east, z)
@@ -105,22 +113,22 @@ async function prewarmBox(cache, north, south, west, east, origin, path, zMin, z
           })
         )
       )
-      // Petite pause entre chaque batch pour ne pas saturer la connexion mobile
-      await new Promise(r => setTimeout(r, 80))
+      await new Promise(r => setTimeout(r, 50))
     }
   }
 }
 
-// Préchauffage GPS-centré (autour de la position de l'utilisateur).
+// Préchauffage GPS : couvre tous les zooms utiles autour de la position.
 async function prewarmRegion(cache, lat, lng, origin, path) {
   const levels = [
-    { z: 10, degRadius: 1.0  },
-    { z: 11, degRadius: 0.6  },
-    { z: 12, degRadius: 0.35 },
-    { z: 13, degRadius: 0.18 },
+    { z: 10, deg: 1.2  },
+    { z: 11, deg: 0.7  },
+    { z: 12, deg: 0.4  },
+    { z: 13, deg: 0.2  },
+    { z: 14, deg: 0.08 },   // zoom de détail de chantier
   ]
-  for (const { z, degRadius } of levels) {
-    await prewarmBox(cache, lat + degRadius, lat - degRadius, lng - degRadius, lng + degRadius, origin, path, z, z, 4)
+  for (const { z, deg } of levels) {
+    await prewarmBox(cache, lat + deg, lat - deg, lng - deg, lng + deg, origin, path, z, z, 6)
   }
 }
 
@@ -136,30 +144,31 @@ function storeTileTemplate(cache, url) {
 }
 
 async function getTileTemplate(cache) {
-  const res = await cache.match('__gnc_tile_template__')
-  if (res) {
-    try { return await res.json() } catch {}
-  }
+  try {
+    const res = await cache.match('__gnc_tile_template__')
+    if (res) return await res.json()
+  } catch {}
   return { origin: 'https://tiles.openfreemap.org', path: '/planet' }
 }
 
 self.addEventListener('message', e => {
   // Préchauffage statique : zone Jura / Lyon / côté Suisse
-  // Lancé au démarrage de l'app, indépendamment du GPS.
   if (e.data?.type === 'PREWARM_STATIC') {
     caches.open(TILE_CACHE).then(async cache => {
       const { origin, path } = await getTileTemplate(cache)
-      // Zooms larges : toute la zone de travail
-      await prewarmBox(cache, 48.0, 45.0, 4.0, 7.5, origin, path, 7, 9, 6)
-      // Zooms moyens : zone principale
-      await prewarmBox(cache, 47.5, 45.5, 4.5, 7.0, origin, path, 10, 11, 4)
-      // Zooms détaillés : cœur Jura/Suisse
-      await prewarmBox(cache, 47.2, 45.8, 5.0, 6.7, origin, path, 12, 12, 4)
+      // Vue large
+      await prewarmBox(cache, 48.0, 45.0, 4.0, 7.5, origin, path, 7, 9, 8)
+      // Zone principale
+      await prewarmBox(cache, 47.5, 45.5, 4.5, 7.0, origin, path, 10, 11, 6)
+      // Détail Jura / Suisse
+      await prewarmBox(cache, 47.2, 45.8, 5.0, 6.7, origin, path, 12, 12, 6)
+      // Très détaillé : cœur Jura
+      await prewarmBox(cache, 47.0, 46.2, 5.4, 6.3, origin, path, 13, 13, 6)
     })
     return
   }
 
-  // Préchauffage GPS-centré (autour de la position de l'utilisateur)
+  // Préchauffage GPS : autour de la position réelle de l'utilisateur
   if (e.data?.type === 'PREWARM_MAP') {
     const { lat, lng } = e.data
     if (!lat || !lng) return
@@ -182,7 +191,6 @@ self.addEventListener('fetch', e => {
     return
   }
 
-  // Style JSON MapLibre — stale-while-revalidate
   if (url.hostname.includes('openfreemap.org') && url.pathname.endsWith('.json')) {
     e.respondWith(
       caches.open(STYLE_CACHE).then(async cache => {
@@ -216,6 +224,7 @@ self.addEventListener('fetch', e => {
             storeTileTemplate(cache, url)
             prefetchVectorNeighbors(cache, url)
             prefetchParentTiles(cache, url)
+            prefetchVectorChildren(cache, url)   // ← zoom avant instantané
           }
         }
         return res
@@ -241,9 +250,7 @@ self.addEventListener('push', e => {
   if (!e.data) return
   let data = {}
   try { data = e.data.json() } catch { data = { title: 'GNC Map', body: e.data.text() } }
-
   const tag = `gnc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
-
   e.waitUntil(
     self.registration.showNotification(data.title ?? 'GNC Map', {
       body: data.body ?? '',
@@ -263,11 +270,7 @@ self.addEventListener('notificationclick', e => {
   e.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(wins => {
       const existing = wins.find(w => w.url.includes(self.location.origin))
-      if (existing) {
-        existing.focus()
-        existing.postMessage({ type: 'OPEN_URL', url: full })
-        return
-      }
+      if (existing) { existing.focus(); existing.postMessage({ type: 'OPEN_URL', url: full }); return }
       return clients.openWindow(full)
     })
   )
