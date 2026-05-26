@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo, memo } from 'react'
 import ReactMap, { Marker } from 'react-map-gl/maplibre'
-import { Menu, Plus, Navigation, X, Search } from 'lucide-react'
+import { Menu, Plus, Navigation, X, Search, Layers } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { requestAndSubscribe } from '../lib/push'
 import { firstName } from '../lib/utils'
@@ -346,19 +346,13 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
 
       {/* Barre du haut */}
       <div className="flex-shrink-0 bg-blue-950 text-white px-4 py-3 flex items-center gap-3 shadow-xl" style={{ zIndex: 1100 }}>
-        <button onClick={() => setShowSidebar(true)} className="p-2 hover:bg-blue-800 rounded-xl transition-colors flex-shrink-0">
-          <Menu size={20} />
-        </button>
-        <button
-          onClick={() => setShowSearch(true)}
-          className="flex-1 flex items-center gap-2 bg-white rounded-xl px-3 py-2 transition-all active:scale-95 min-w-0 shadow-sm"
-        >
-          <Search size={15} className="text-blue-600 flex-shrink-0" />
-          <span className="text-gray-400 text-sm truncate">Entreprise, ville, commercial…</span>
-        </button>
+        <div className="flex-1 min-w-0">
+          <p className="font-extrabold text-base leading-tight tracking-tight">GNC Map</p>
+          <p className="text-blue-300 text-xs">Groupe Nord Coffrage</p>
+        </div>
         <button
           onClick={onSwitch}
-          className="flex items-center gap-2 bg-white/10 hover:bg-white/20 rounded-xl px-3 py-1.5 transition-colors"
+          className="flex items-center gap-2 bg-white/10 hover:bg-white/20 rounded-xl px-3 py-1.5 transition-colors flex-shrink-0"
         >
           <div
             className="w-6 h-6 rounded-lg flex items-center justify-center text-white font-bold text-xs flex-shrink-0"
@@ -366,9 +360,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           >
             {commercial.name.charAt(0).toUpperCase()}
           </div>
-          <span className="text-white text-xs font-semibold truncate max-w-24">
-            {firstName(commercial.name)}
-          </span>
+          <span className="text-white text-xs font-semibold">{firstName(commercial.name)}</span>
         </button>
       </div>
 
@@ -458,48 +450,17 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           ))}
         </ReactMap>
 
-        <div className="absolute bottom-6 right-4 flex flex-col gap-3" style={{ zIndex: 1000 }}>
-          <button
-            onClick={handleLocateMe}
-            className="w-12 h-12 bg-white rounded-full shadow-lg flex items-center justify-center text-blue-800 hover:bg-blue-50 active:scale-95 transition-all"
-          >
-            <Navigation size={20} />
-          </button>
-          <button
-            onClick={handleAddHere}
-            className="w-16 h-16 bg-blue-700 rounded-full shadow-xl flex items-center justify-center text-white hover:bg-blue-800 active:scale-95 transition-all"
-          >
-            <Plus size={30} />
-          </button>
-        </div>
-
+        {/* Légende commerciaux — haut gauche */}
         <div
-          className="absolute bottom-6 left-4 bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg p-3 text-xs text-gray-700 space-y-2 max-w-44"
+          className="absolute top-3 left-3 bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg px-3 py-2 flex items-center gap-3"
           style={{ zIndex: 1000 }}
         >
-          <p className="font-semibold text-gray-400 uppercase tracking-wider text-[10px]">Commerciaux</p>
           {allCommercials.map(c => (
-            <div key={c.id} className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: c.color }} />
-              <span className="truncate">{firstName(c.name)}</span>
+            <div key={c.id} className="flex items-center gap-1.5">
+              <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: c.color }} />
+              <span className="text-[11px] font-semibold text-gray-700">{firstName(c.name)}</span>
             </div>
           ))}
-          <div className="border-t border-gray-100 pt-2 space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="text-base leading-none">🏢</span>
-              <span className="text-gray-500">Siège social</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-base leading-none">🏗️</span>
-              <span className="text-gray-500">Chantier</span>
-            </div>
-          </div>
-          <button
-            onClick={() => setMapStyle(s => s === 'street' ? 'satellite' : 'street')}
-            className={`w-full text-[10px] font-semibold py-1.5 rounded-xl border transition-all active:scale-95 select-none ${mapStyle === 'satellite' ? 'bg-blue-700 text-white border-blue-700' : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'}`}
-          >
-            {mapStyle === 'satellite' ? '🗺️ Vue plan' : '🛰️ Satellite'}
-          </button>
         </div>
 
         {selectedSite && (
@@ -520,6 +481,65 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
             />
           </div>
         )}
+      </div>
+
+      {/* ── Barre de navigation bas ─────────────────────────────── */}
+      <div
+        className="flex-shrink-0 bg-white border-t border-gray-200 shadow-2xl"
+        style={{ zIndex: 1100, paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        <div className="flex items-end">
+
+          {/* Recherche */}
+          <button
+            onClick={() => setShowSearch(true)}
+            className="flex-1 flex flex-col items-center gap-1 py-3 text-blue-700 active:bg-blue-50 transition-colors"
+          >
+            <Search size={22} strokeWidth={2} />
+            <span className="text-[10px] font-bold uppercase tracking-wide">Rechercher</span>
+          </button>
+
+          {/* Localiser */}
+          <button
+            onClick={handleLocateMe}
+            className="flex-1 flex flex-col items-center gap-1 py-3 text-gray-500 active:bg-gray-50 transition-colors"
+          >
+            <Navigation size={22} strokeWidth={2} />
+            <span className="text-[10px] font-semibold uppercase tracking-wide">Localiser</span>
+          </button>
+
+          {/* Ajouter — bouton central saillant */}
+          <div className="flex flex-col items-center pb-2 px-2">
+            <button
+              onClick={handleAddHere}
+              className="w-16 h-16 bg-blue-700 rounded-full flex items-center justify-center text-white shadow-2xl active:scale-95 transition-transform -mt-8 border-4 border-white"
+            >
+              <Plus size={30} strokeWidth={2.5} />
+            </button>
+            <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mt-1">Ajouter</span>
+          </div>
+
+          {/* Vue satellite */}
+          <button
+            onClick={() => setMapStyle(s => s === 'street' ? 'satellite' : 'street')}
+            className={`flex-1 flex flex-col items-center gap-1 py-3 transition-colors active:bg-gray-50 ${mapStyle === 'satellite' ? 'text-blue-700' : 'text-gray-500'}`}
+          >
+            <Layers size={22} strokeWidth={2} />
+            <span className="text-[10px] font-semibold uppercase tracking-wide">
+              {mapStyle === 'satellite' ? 'Plan' : 'Satellite'}
+            </span>
+          </button>
+
+          {/* Menu / Filtres */}
+          <button
+            onClick={() => setShowSidebar(true)}
+            className="flex-1 flex flex-col items-center gap-1 py-3 text-gray-500 active:bg-gray-50 transition-colors"
+          >
+            <Menu size={22} strokeWidth={2} />
+            <span className="text-[10px] font-semibold uppercase tracking-wide">Menu</span>
+          </button>
+
+        </div>
       </div>
 
       {showAddModal && (
