@@ -357,41 +357,19 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
     )
   }
 
-  const NAV_BTN = {
-    flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
-    justifyContent: 'center', gap: 3, padding: '8px 2px',
-    background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280',
+  // Style commun des boutons flottants sur la carte
+  const FAB = {
+    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+    gap: 3, width: 52, height: 52,
+    background: 'white', border: 'none', borderRadius: 14,
+    boxShadow: '0 2px 10px rgba(0,0,0,0.18)', cursor: 'pointer', color: '#374151',
   }
-  const NAV_LBL = { fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }
-
-  // Boutons de la nav bar — partagés entre les deux positions possibles
-  const navButtons = (
-    <>
-      <button onClick={() => setShowSearch('text')} style={NAV_BTN} >
-        <Search size={20} strokeWidth={2} /><span style={NAV_LBL}>Rechercher</span>
-      </button>
-      <button onClick={() => setShowSearch('voice')} style={NAV_BTN}>
-        <Mic size={20} strokeWidth={2} /><span style={NAV_LBL}>Dicter</span>
-      </button>
-      <button onClick={handleAddHere} style={{ ...NAV_BTN, color: '#1D4ED8' }}>
-        <Plus size={20} strokeWidth={2.5} /><span style={NAV_LBL}>Ajouter</span>
-      </button>
-      <button onClick={() => setMapStyle(s => s === 'street' ? 'satellite' : 'street')} style={{ ...NAV_BTN, color: mapStyle === 'satellite' ? '#1D4ED8' : '#6B7280' }}>
-        <Layers size={20} strokeWidth={2} /><span style={NAV_LBL}>{mapStyle === 'satellite' ? 'Plan' : 'Satellite'}</span>
-      </button>
-      <button onClick={handleLocateMe} style={NAV_BTN}>
-        <Navigation size={20} strokeWidth={2} style={{ color: userPosition ? '#1D4ED8' : '#6B7280' }} /><span style={NAV_LBL}>Localiser</span>
-      </button>
-      <button onClick={() => setShowSidebar(true)} style={NAV_BTN}>
-        <Menu size={20} strokeWidth={2} /><span style={NAV_LBL}>Menu</span>
-      </button>
-    </>
-  )
+  const FAB_LBL = { fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#6B7280' }
 
   return (
     <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
-      {/* ── Overlays (rendus avant tout, z-index élevé) ─────────── */}
+      {/* ── Overlays ────────────────────────────────────────────── */}
       {showSearch && (
         <SearchBar
           sites={sites}
@@ -413,47 +391,84 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         <VoiceNavModal site={voiceNavSite} onClose={() => setVoiceNavSite(null)} />
       )}
 
-      {/* ── Barre du haut ──────────────────────────────────────── */}
+      {/* ══════════════════════════════════════════════════════════
+          HEADER + ONGLET RECHERCHE
+          L'onglet blanc dépasse de 24px en dessous du header bleu.
+          Rendu avant la carte → toujours visible sur tout appareil.
+      ══════════════════════════════════════════════════════════ */}
       <div style={{
         flexShrink: 0,
+        position: 'relative',
         background: '#172554',
-        display: 'flex', alignItems: 'center',
-        gap: 12, padding: '10px 16px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+        zIndex: 200,
+        overflow: 'visible',        /* permet à l'onglet de déborder */
+        paddingBottom: 24,          /* espace pour l'onglet */
       }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <p style={{ fontWeight: 800, fontSize: 15, color: 'white', lineHeight: 1.2, margin: 0 }}>GNC Map</p>
-          <p style={{ fontSize: 11, color: '#93C5FD', margin: 0 }}>Groupe Nord Coffrage</p>
+        {/* Ligne titre + commercial */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px 0' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontWeight: 800, fontSize: 15, color: 'white', lineHeight: 1.2, margin: 0 }}>GNC Map</p>
+            <p style={{ fontSize: 11, color: '#93C5FD', margin: 0 }}>Groupe Nord Coffrage</p>
+          </div>
+          <button onClick={onSwitch} style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            background: 'rgba(255,255,255,0.12)', borderRadius: 12,
+            padding: '6px 12px', border: 'none', cursor: 'pointer',
+          }}>
+            <div style={{
+              width: 24, height: 24, borderRadius: 8, background: commercial.color,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: 'white', fontWeight: 700, fontSize: 12,
+            }}>{commercial.name.charAt(0).toUpperCase()}</div>
+            <span style={{ color: 'white', fontSize: 12, fontWeight: 600 }}>{firstName(commercial.name)}</span>
+          </button>
         </div>
-        <button onClick={onSwitch} style={{
-          display: 'flex', alignItems: 'center', gap: 8,
-          background: 'rgba(255,255,255,0.12)', borderRadius: 12,
-          padding: '6px 12px', border: 'none', cursor: 'pointer',
+
+        {/* ── Onglet recherche (dépasse du bas du header) ───────── */}
+        <div style={{
+          position: 'absolute',
+          bottom: -20,
+          left: 16, right: 16,      /* pleine largeur avec marges */
+          zIndex: 300,
+          display: 'flex', alignItems: 'center', gap: 10,
+          background: 'white',
+          borderRadius: 16,
+          padding: '10px 14px',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.22)',
         }}>
-          <div style={{
-            width: 24, height: 24, borderRadius: 8, background: commercial.color,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: 'white', fontWeight: 700, fontSize: 12,
-          }}>{commercial.name.charAt(0).toUpperCase()}</div>
-          <span style={{ color: 'white', fontSize: 12, fontWeight: 600 }}>{firstName(commercial.name)}</span>
-        </button>
+          {/* Icône loupe */}
+          <Search size={18} strokeWidth={2.5} style={{ color: '#1D4ED8', flexShrink: 0 }} />
+
+          {/* Zone texte cliquable */}
+          <div
+            onClick={() => setShowSearch('text')}
+            style={{ flex: 1, cursor: 'text' }}
+          >
+            <span style={{ fontSize: 14, color: '#9CA3AF', fontWeight: 500, userSelect: 'none' }}>
+              Rechercher un site…
+            </span>
+          </div>
+
+          {/* Séparateur vertical */}
+          <div style={{ width: 1, height: 20, background: '#E5E7EB', flexShrink: 0 }} />
+
+          {/* Bouton micro — dicter avec la voix */}
+          <button
+            onClick={() => setShowSearch('voice')}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: 34, height: 34, borderRadius: '50%',
+              background: '#EFF6FF', border: 'none', cursor: 'pointer', flexShrink: 0,
+            }}
+            title="Dicter"
+          >
+            <Mic size={16} strokeWidth={2} style={{ color: '#1D4ED8' }} />
+          </button>
+        </div>
       </div>
 
-      {/* ── NAV BAR dans le flux — rendue AVANT la carte ─────────
-          Positionnée ici = DOM au-dessus du canvas WebGL = toujours visible.
-      ──────────────────────────────────────────────────────────── */}
-      <div style={{
-        flexShrink: 0,
-        background: 'white',
-        borderBottom: '2px solid #1D4ED8',
-        display: 'flex',
-        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-      }}>
-        {navButtons}
-      </div>
-
-      {/* ── Carte — prend tout l'espace restant ────────────────── */}
-      <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
+      {/* ── Carte — prend tout l'espace sous le header + onglet ── */}
+      <div style={{ flex: 1, position: 'relative', minHeight: 0, paddingTop: 20 }}>
 
         {showSidebar && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', zIndex: 1200 }}>
@@ -535,7 +550,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           ))}
         </ReactMap>
 
-        {/* Légende */}
+        {/* Légende commerciaux — haut gauche */}
         <div style={{
           position: 'absolute', top: 10, left: 10, zIndex: 500,
           background: 'rgba(255,255,255,0.95)', borderRadius: 14,
@@ -548,6 +563,29 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
               <span style={{ fontSize: 11, fontWeight: 600, color: '#374151' }}>{firstName(c.name)}</span>
             </div>
           ))}
+        </div>
+
+        {/* ── Boutons flottants — bas droite ──────────────────── */}
+        <div style={{
+          position: 'absolute', bottom: 16, right: 12, zIndex: 500,
+          display: 'flex', flexDirection: 'column', gap: 8,
+        }}>
+          <button onClick={handleAddHere} style={{ ...FAB, color: '#1D4ED8' }}>
+            <Plus size={22} strokeWidth={2.5} />
+            <span style={FAB_LBL}>Ajouter</span>
+          </button>
+          <button onClick={() => setMapStyle(s => s === 'street' ? 'satellite' : 'street')} style={{ ...FAB, color: mapStyle === 'satellite' ? '#1D4ED8' : '#374151' }}>
+            <Layers size={20} strokeWidth={2} />
+            <span style={FAB_LBL}>{mapStyle === 'satellite' ? 'Plan' : 'Sat.'}</span>
+          </button>
+          <button onClick={handleLocateMe} style={{ ...FAB, color: userPosition ? '#1D4ED8' : '#374151' }}>
+            <Navigation size={20} strokeWidth={2} />
+            <span style={FAB_LBL}>Localiser</span>
+          </button>
+          <button onClick={() => setShowSidebar(true)} style={FAB}>
+            <Menu size={20} strokeWidth={2} />
+            <span style={FAB_LBL}>Menu</span>
+          </button>
         </div>
 
         {selectedSite && (
