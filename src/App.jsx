@@ -71,18 +71,13 @@ export default function App() {
     if (saved) {
       try {
         const c = JSON.parse(saved)
-        // Tenter de reclaimer la session (si expirée ou la nôtre, on passe)
-        checkAndClaimSession(c.id).then(result => {
-          if (result.ok) {
-            setCommercial(c)
-            startHeartbeat(c.id)
-          } else {
-            // Session prise par quelqu'un d'autre → retour au sélecteur
-            localStorage.removeItem('gnc_commercial')
-            clearLocalToken()
-          }
-          setLoading(false)
-        })
+        // Afficher la carte immédiatement — ne pas attendre Supabase (cold start = 30 s)
+        setCommercial(c)
+        setLoading(false)
+        // Réclamer la session en arrière-plan sans bloquer l'affichage
+        checkAndClaimSession(c.id)
+          .then(() => startHeartbeat(c.id))
+          .catch(() => {})
       } catch {
         localStorage.removeItem('gnc_commercial')
         setLoading(false)
