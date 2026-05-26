@@ -1,5 +1,5 @@
-const CACHE = 'gnc-map-v13'
-const TILE_CACHE = 'gnc-tiles-v7'
+const CACHE = 'gnc-map-v14'
+const TILE_CACHE = 'gnc-tiles-v8'
 const STYLE_CACHE = 'gnc-styles-v1'
 
 self.addEventListener('install', e => {
@@ -16,7 +16,7 @@ self.addEventListener('activate', e => {
   )
 })
 
-// Précharge les 8 tuiles voisines (même zoom, toutes directions) d'une tuile vectorielle.
+// Précharge les 8 tuiles voisines (même zoom) d'une tuile vectorielle.
 function prefetchVectorNeighbors(cache, url) {
   const m = url.pathname.match(/\/(\d+)\/(\d+)\/(\d+)\.pbf$/)
   if (!m) return
@@ -32,6 +32,27 @@ function prefetchVectorNeighbors(cache, url) {
     const nUrl = `${url.origin}${basePath}/${nz}/${nx}/${ny}.pbf`
     cache.match(nUrl).then(hit => {
       if (!hit) fetch(nUrl).then(r => { if (r.ok) try { cache.put(nUrl, r) } catch {} }).catch(() => {})
+    })
+  })
+}
+
+// Précharge les tuiles parents (zoom-1 et zoom-2) comme couche de repli.
+// MapLibre affiche le parent pendant que la tuile détaillée charge — s'il est en
+// cache, le fond apparaît instantanément et les carrés blancs disparaissent.
+function prefetchParentTiles(cache, url) {
+  const m = url.pathname.match(/\/(\d+)\/(\d+)\/(\d+)\.pbf$/)
+  if (!m) return
+  const z = +m[1], x = +m[2], y = +m[3]
+  if (z < 2) return
+  const basePath = url.pathname.replace(/\/\d+\/\d+\/\d+\.pbf$/, '')
+  const parents = [
+    [z - 1, Math.floor(x / 2), Math.floor(y / 2)],
+    [z - 2, Math.floor(x / 4), Math.floor(y / 4)],
+  ].filter(([pz]) => pz >= 0)
+  parents.forEach(([pz, px, py]) => {
+    const pUrl = `${url.origin}${basePath}/${pz}/${px}/${py}.pbf`
+    cache.match(pUrl).then(hit => {
+      if (!hit) fetch(pUrl).then(r => { if (r.ok) try { cache.put(pUrl, r) } catch {} }).catch(() => {})
     })
   })
 }
@@ -64,10 +85,7 @@ function latLngToTile(lat, lng, z) {
   return { x, y }
 }
 
-// Télécharge en arrière-plan toutes les tuiles vectorielles dans un rayon autour du GPS.
-// Exécuté en mode "idle" — 1 tuile/150 ms max pour ne pas saturer la connexion.
 async function prewarmRegion(cache, lat, lng, tileOrigin, tilePath) {
-  // zoom → rayon en degrés de latitude (approximation rapide : 1° ≈ 111 km)
   const levels = [
     { z: 7,  degRadius: 3.0  },
     { z: 8,  degRadius: 2.0  },
@@ -92,7 +110,6 @@ async function prewarmRegion(cache, lat, lng, tileOrigin, tilePath) {
           await fetch(url)
             .then(r => { if (r.ok) try { cache.put(url, r) } catch {} })
             .catch(() => {})
-          // Petite pause pour ne pas bloquer la connexion
           await new Promise(r => setTimeout(r, 150))
         }
       }
@@ -100,7 +117,6 @@ async function prewarmRegion(cache, lat, lng, tileOrigin, tilePath) {
   }
 }
 
-// Le premier fetch d'une tuile .pbf enregistre le template d'URL (origine + chemin de base).
 function storeTileTemplate(cache, url) {
   const basePath = url.pathname.replace(/\/\d+\/\d+\/\d+\.pbf$/, '')
   const templateKey = '__gnc_tile_template__'
@@ -124,7 +140,6 @@ self.addEventListener('message', e => {
     if (templateRes) {
       try { ({ origin, path } = await templateRes.json()) } catch { return }
     } else {
-      // Fallback : OpenFreeMap tiles.openfreemap.org
       origin = 'https://tiles.openfreemap.org'
       path = '/planet'
     }
@@ -177,6 +192,7 @@ self.addEventListener('fetch', e => {
           } else if (url.hostname.includes('openfreemap.org') && url.pathname.endsWith('.pbf')) {
             storeTileTemplate(cache, url)
             prefetchVectorNeighbors(cache, url)
+            prefetchParentTiles(cache, url)
           }
         }
         return res

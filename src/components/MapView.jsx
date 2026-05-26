@@ -13,6 +13,11 @@ import InstallBanner from './InstallBanner'
 import toast from 'react-hot-toast'
 
 const STREET_STYLE = 'https://tiles.openfreemap.org/styles/bright'
+const APP_CACHE_KEY = 'gnc_app_data_v1'
+
+function getCachedAppData() {
+  try { return JSON.parse(localStorage.getItem(APP_CACHE_KEY) || 'null') } catch { return null }
+}
 
 function getSavedView() {
   try {
@@ -54,8 +59,9 @@ const SiteMarker = memo(function SiteMarker({ site, color, onSelect }) {
 })
 
 export default function MapView({ commercial, onSwitch, installPrompt, onInstalled }) {
-  const [allCommercials, setAllCommercials] = useState([])
-  const [sites, setSites] = useState([])
+  // Initialiser depuis le cache localStorage — zéro latence au démarrage
+  const [allCommercials, setAllCommercials] = useState(() => getCachedAppData()?.comms ?? [])
+  const [sites, setSites] = useState(() => (getCachedAppData()?.sites ?? []).filter(s => !s.deleted))
   const [selectedSite, setSelectedSite] = useState(null)
   const [showAddModal, setShowAddModal] = useState(false)
   const [addPosition, setAddPosition] = useState(null)
@@ -64,7 +70,10 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
   const [showReports, setShowReports] = useState(false)
   const [showLocationHelp, setShowLocationHelp] = useState(false)
   const [userPosition, setUserPosition] = useState(null)
-  const [visibleCommercials, setVisibleCommercials] = useState(new Set())
+  const [visibleCommercials, setVisibleCommercials] = useState(() => {
+    const cached = getCachedAppData()
+    return cached?.comms?.length ? new Set(cached.comms.map(c => c.id)) : new Set()
+  })
   const [visibleTypes, setVisibleTypes] = useState(new Set(['siege', 'chantier']))
   const [flyTo, setFlyTo] = useState(null)
   const [mapStyle, setMapStyle] = useState('street')
@@ -171,6 +180,10 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           return (p && p.updated_at === s.updated_at) ? p : s
         })
       })
+    }
+    // Persister les données fraîches pour le prochain démarrage (zéro latence)
+    if (comms && sitesData) {
+      try { localStorage.setItem(APP_CACHE_KEY, JSON.stringify({ comms, sites: sitesData })) } catch {}
     }
   }, [])
 
@@ -393,6 +406,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           fadeDuration={0}
           localIdeographFontFamily="sans-serif"
           renderWorldCopies={false}
+          maxTileCacheSize={500}
         >
           {userPosition && (
             <Marker longitude={userPosition[1]} latitude={userPosition[0]} anchor="center">
