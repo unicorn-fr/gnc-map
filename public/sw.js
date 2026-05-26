@@ -1,5 +1,5 @@
-const CACHE = 'gnc-map-v14'
-const TILE_CACHE = 'gnc-tiles-v8'
+const CACHE = 'gnc-map-v15'
+const TILE_CACHE = 'gnc-tiles-v9'
 const STYLE_CACHE = 'gnc-styles-v1'
 
 self.addEventListener('install', e => {
@@ -37,8 +37,6 @@ function prefetchVectorNeighbors(cache, url) {
 }
 
 // Précharge les tuiles parents (zoom-1 et zoom-2) comme couche de repli.
-// MapLibre affiche le parent pendant que la tuile détaillée charge — s'il est en
-// cache, le fond apparaît instantanément et les carrés blancs disparaissent.
 function prefetchParentTiles(cache, url) {
   const m = url.pathname.match(/\/(\d+)\/(\d+)\/(\d+)\.pbf$/)
   if (!m) return
@@ -76,7 +74,7 @@ function prefetchOsmChildren(cache, url) {
   })
 }
 
-// ── Préchauffage régional ─────────────────────────────────────────
+// ── Préchauffage ──────────────────────────────────────────────
 
 function latLngToTile(lat, lng, z) {
   const x = Math.floor((lng + 180) / 360 * (1 << z))
@@ -85,66 +83,91 @@ function latLngToTile(lat, lng, z) {
   return { x, y }
 }
 
-async function prewarmRegion(cache, lat, lng, tileOrigin, tilePath) {
+// Télécharge une boîte de tuiles en parallèle (batchSize à la fois).
+// Saute les tuiles déjà en cache → ultra-rapide après la première fois.
+async function prewarmBox(cache, north, south, west, east, origin, path, zMin, zMax, batchSize = 4) {
+  for (let z = zMin; z <= zMax; z++) {
+    const tl = latLngToTile(north, west, z)
+    const br = latLngToTile(south, east, z)
+    const x0 = Math.min(tl.x, br.x), x1 = Math.max(tl.x, br.x)
+    const y0 = Math.min(tl.y, br.y), y1 = Math.max(tl.y, br.y)
+
+    const tiles = []
+    for (let tx = x0; tx <= x1; tx++)
+      for (let ty = y0; ty <= y1; ty++)
+        tiles.push(`${origin}${path}/${z}/${tx}/${ty}.pbf`)
+
+    for (let i = 0; i < tiles.length; i += batchSize) {
+      await Promise.all(
+        tiles.slice(i, i + batchSize).map(url =>
+          cache.match(url).then(hit => {
+            if (!hit) return fetch(url).then(r => { if (r.ok) try { cache.put(url, r) } catch {} }).catch(() => {})
+          })
+        )
+      )
+      // Petite pause entre chaque batch pour ne pas saturer la connexion mobile
+      await new Promise(r => setTimeout(r, 80))
+    }
+  }
+}
+
+// Préchauffage GPS-centré (autour de la position de l'utilisateur).
+async function prewarmRegion(cache, lat, lng, origin, path) {
   const levels = [
-    { z: 7,  degRadius: 3.0  },
-    { z: 8,  degRadius: 2.0  },
-    { z: 9,  degRadius: 1.5  },
     { z: 10, degRadius: 1.0  },
     { z: 11, degRadius: 0.6  },
     { z: 12, degRadius: 0.35 },
     { z: 13, degRadius: 0.18 },
   ]
-
   for (const { z, degRadius } of levels) {
-    const min = latLngToTile(lat + degRadius, lng - degRadius, z)
-    const max = latLngToTile(lat - degRadius, lng + degRadius, z)
-    const x0 = Math.min(min.x, max.x), x1 = Math.max(min.x, max.x)
-    const y0 = Math.min(min.y, max.y), y1 = Math.max(min.y, max.y)
-
-    for (let tx = x0; tx <= x1; tx++) {
-      for (let ty = y0; ty <= y1; ty++) {
-        const url = `${tileOrigin}${tilePath}/${z}/${tx}/${ty}.pbf`
-        const hit = await cache.match(url)
-        if (!hit) {
-          await fetch(url)
-            .then(r => { if (r.ok) try { cache.put(url, r) } catch {} })
-            .catch(() => {})
-          await new Promise(r => setTimeout(r, 150))
-        }
-      }
-    }
+    await prewarmBox(cache, lat + degRadius, lat - degRadius, lng - degRadius, lng + degRadius, origin, path, z, z, 4)
   }
 }
 
 function storeTileTemplate(cache, url) {
   const basePath = url.pathname.replace(/\/\d+\/\d+\/\d+\.pbf$/, '')
-  const templateKey = '__gnc_tile_template__'
-  cache.match(templateKey).then(hit => {
+  cache.match('__gnc_tile_template__').then(hit => {
     if (!hit) {
-      cache.put(templateKey, new Response(JSON.stringify({ origin: url.origin, path: basePath }), {
+      cache.put('__gnc_tile_template__', new Response(JSON.stringify({ origin: url.origin, path: basePath }), {
         headers: { 'Content-Type': 'application/json' },
       }))
     }
   })
 }
 
-self.addEventListener('message', e => {
-  if (e.data?.type !== 'PREWARM_MAP') return
-  const { lat, lng } = e.data
-  if (!lat || !lng) return
+async function getTileTemplate(cache) {
+  const res = await cache.match('__gnc_tile_template__')
+  if (res) {
+    try { return await res.json() } catch {}
+  }
+  return { origin: 'https://tiles.openfreemap.org', path: '/planet' }
+}
 
-  caches.open(TILE_CACHE).then(async cache => {
-    const templateRes = await cache.match('__gnc_tile_template__')
-    let origin, path
-    if (templateRes) {
-      try { ({ origin, path } = await templateRes.json()) } catch { return }
-    } else {
-      origin = 'https://tiles.openfreemap.org'
-      path = '/planet'
-    }
-    prewarmRegion(cache, lat, lng, origin, path)
-  })
+self.addEventListener('message', e => {
+  // Préchauffage statique : zone Jura / Lyon / côté Suisse
+  // Lancé au démarrage de l'app, indépendamment du GPS.
+  if (e.data?.type === 'PREWARM_STATIC') {
+    caches.open(TILE_CACHE).then(async cache => {
+      const { origin, path } = await getTileTemplate(cache)
+      // Zooms larges : toute la zone de travail
+      await prewarmBox(cache, 48.0, 45.0, 4.0, 7.5, origin, path, 7, 9, 6)
+      // Zooms moyens : zone principale
+      await prewarmBox(cache, 47.5, 45.5, 4.5, 7.0, origin, path, 10, 11, 4)
+      // Zooms détaillés : cœur Jura/Suisse
+      await prewarmBox(cache, 47.2, 45.8, 5.0, 6.7, origin, path, 12, 12, 4)
+    })
+    return
+  }
+
+  // Préchauffage GPS-centré (autour de la position de l'utilisateur)
+  if (e.data?.type === 'PREWARM_MAP') {
+    const { lat, lng } = e.data
+    if (!lat || !lng) return
+    caches.open(TILE_CACHE).then(async cache => {
+      const { origin, path } = await getTileTemplate(cache)
+      prewarmRegion(cache, lat, lng, origin, path)
+    })
+  }
 })
 
 self.addEventListener('fetch', e => {
