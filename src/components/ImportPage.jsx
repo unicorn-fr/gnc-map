@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
 import * as XLSX from 'xlsx'
-import { ArrowLeft, Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Info, Trash2, History } from 'lucide-react'
+import { ArrowLeft, Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Info, Trash2, History, MapPin, Pencil, RotateCcw } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { COMMERCIAL_ALIASES } from '../lib/commercials'
-import { geocodeBatch } from '../lib/geocode'
+import { geocodeBatch, geocodeSingle } from '../lib/geocode'
 import toast from 'react-hot-toast'
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -98,6 +98,8 @@ export default function ImportPage({ commercials, onClose, onImported }) {
   const [importHistory, setImportHistory] = useState([])
   const [historyLoading, setHistoryLoading] = useState(false)
   const [deletingBatch, setDeletingBatch] = useState(null)
+  const [fixableRows, setFixableRows] = useState([])
+  const [importBatchId, setImportBatchId] = useState(null)
   const fileRef = useRef()
 
   useEffect(() => {
@@ -226,9 +228,10 @@ export default function ImportPage({ commercials, onClose, onImported }) {
     setStep(3)
 
     const batchId = crypto.randomUUID()
+    setImportBatchId(batchId)
     const prepared = validRows
 
-    // 1. Géocodage batch (1 seule requête HTTP pour tout le fichier)
+    // 1. Géocodage batch
     let geoResults = prepared.map(() => null)
     if (prepared.some(r => r.address || r.city)) {
       setProgress({ current: 0, total: prepared.length, phase: 'geo' })
@@ -241,7 +244,7 @@ export default function ImportPage({ commercials, onClose, onImported }) {
 
     setProgress({ current: 0, total: prepared.length, phase: 'db' })
 
-    // 2. Récupérer tous les external_ids existants en une seule requête
+    // 2. Récupérer tous les external_ids existants
     const extIds = prepared.map(r => r.external_id).filter(Boolean)
     let existingMap = new Map()
     if (extIds.length > 0) {
@@ -277,20 +280,33 @@ export default function ImportPage({ commercials, onClose, onImported }) {
       if (row.external_id && existingMap.has(row.external_id)) {
         const ex = existingMap.get(row.external_id)
         if (ex.deleted) { skipped++; return }
-        toUpdate.push({ id: ex.id, payload })
+        toUpdate.push({ id: ex.id, payload, hasGeo: !!geoResults[i] })
       } else {
-        toInsert.push(payload)
+        toInsert.push({ payload, hasGeo: !!geoResults[i] })
       }
     })
 
     // 4. Batch insert (par blocs de 500)
     let inserted = 0
+    const dbErrors = []
     const CHUNK = 500
     for (let i = 0; i < toInsert.length; i += CHUNK) {
       const chunk = toInsert.slice(i, i + CHUNK)
-      const { error } = await supabase.from('sites').insert(chunk)
-      if (error) skipped += chunk.length
-      else inserted += chunk.length
+      const { error } = await supabase.from('sites').insert(chunk.map(r => r.payload))
+      if (error) {
+        // Retry individuellement pour isoler les erreurs
+        for (const item of chunk) {
+          const { error: e2 } = await supabase.from('sites').insert(item.payload)
+          if (e2) {
+            dbErrors.push({ payload: item.payload, issue: 'dberror', dbError: e2.message, editName: item.payload.name, editAddress: item.payload.address || '', editPostcode: item.payload.postcode || '', editCity: item.payload.city || '', saving: false, saved: false })
+            skipped++
+          } else {
+            inserted++
+          }
+        }
+      } else {
+        inserted += chunk.length
+      }
     }
 
     // 5. Updates individuels
@@ -305,9 +321,65 @@ export default function ImportPage({ commercials, onClose, onImported }) {
       batch_id: batchId,
     })
 
+    // Collecter les lignes sans géolocalisation (insérées mais sans coordonnées)
+    const noGeoRows = []
+    toInsert.forEach(({ payload, hasGeo }) => {
+      if (!hasGeo && !dbErrors.find(e => e.payload.name === payload.name && e.payload.external_id === payload.external_id)) {
+        noGeoRows.push({ payload, issue: 'nogeo', editName: payload.name, editAddress: payload.address || '', editPostcode: payload.postcode || '', editCity: payload.city || '', saving: false, saved: false })
+      }
+    })
+    toUpdate.forEach(({ id, payload, hasGeo }) => {
+      if (!hasGeo) {
+        noGeoRows.push({ payload: { ...payload, _dbId: id }, issue: 'nogeo', editName: payload.name, editAddress: payload.address || '', editPostcode: payload.postcode || '', editCity: payload.city || '', saving: false, saved: false })
+      }
+    })
+
     const noGeo = geoResults.filter(g => g === null).length
+    setFixableRows([...dbErrors, ...noGeoRows])
     setResults({ inserted, updated, skipped, noGeo, total: prepared.length })
     setIsRunning(false)
+  }
+
+  const saveFixedRow = async (idx) => {
+    const row = fixableRows[idx]
+    setFixableRows(prev => prev.map((r, i) => i === idx ? { ...r, saving: true } : r))
+    try {
+      const geo = await geocodeSingle(row.editAddress, row.editPostcode, row.editCity)
+      const update = {
+        name:    row.editName    || row.payload.name,
+        address: row.editAddress || null,
+        postcode:row.editPostcode|| null,
+        city:    row.editCity    || null,
+        lat:     geo?.lat ?? null,
+        lng:     geo?.lng ?? null,
+        updated_at: new Date().toISOString(),
+      }
+      let err
+      if (row.issue === 'dberror') {
+        const { error } = await supabase.from('sites').insert({ ...row.payload, ...update })
+        err = error
+      } else if (row.payload._dbId) {
+        const { error } = await supabase.from('sites').update(update).eq('id', row.payload._dbId)
+        err = error
+      } else if (row.payload.external_id) {
+        const { error } = await supabase.from('sites').update(update).eq('external_id', row.payload.external_id)
+        err = error
+      } else {
+        const { error } = await supabase.from('sites').update(update)
+          .eq('import_batch_id', importBatchId).eq('name', row.payload.name)
+        err = error
+      }
+      if (err) {
+        toast.error('Erreur : ' + err.message)
+        setFixableRows(prev => prev.map((r, i) => i === idx ? { ...r, saving: false } : r))
+      } else {
+        setFixableRows(prev => prev.map((r, i) => i === idx ? { ...r, saving: false, saved: true, hasGeo: !!geo } : r))
+        toast.success(geo ? 'Site localisé et corrigé ✓' : 'Corrigé (adresse non localisée)')
+      }
+    } catch {
+      toast.error('Erreur réseau')
+      setFixableRows(prev => prev.map((r, i) => i === idx ? { ...r, saving: false } : r))
+    }
   }
 
   // ── Rendu ─────────────────────────────────────────────────────
@@ -601,7 +673,7 @@ export default function ImportPage({ commercials, onClose, onImported }) {
 
         {/* ── STEP 3 : Import en cours / Résultats ── */}
         {step === 3 && (
-          <div className="p-6 max-w-md mx-auto flex flex-col items-center text-center">
+          <div className="p-6 max-w-lg mx-auto flex flex-col items-center text-center">
             {isRunning ? (
               <>
                 <div className="w-20 h-20 bg-blue-50 rounded-full flex items-center justify-center mb-6">
@@ -631,12 +703,12 @@ export default function ImportPage({ commercials, onClose, onImported }) {
                 <div className="w-20 h-20 bg-emerald-50 rounded-full flex items-center justify-center mb-6">
                   <CheckCircle2 size={40} className="text-emerald-500" />
                 </div>
-                <h2 className="text-xl font-bold text-gray-800 mb-6">Import terminé !</h2>
-                <div className="w-full grid grid-cols-2 gap-3 mb-4">
+                <h2 className="text-xl font-bold text-gray-800 mb-4">Import terminé !</h2>
+                <div className="w-full grid grid-cols-2 gap-3 mb-6">
                   {[
                     { value: results.inserted, label: 'Ajoutés',    color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
                     { value: results.updated,  label: 'Mis à jour', color: 'bg-blue-50 text-blue-700 border-blue-200' },
-                    { value: results.skipped,  label: 'Ignorés',    color: 'bg-gray-50 text-gray-500 border-gray-200' },
+                    { value: results.skipped,  label: 'Erreurs DB', color: results.skipped > 0 ? 'bg-red-50 text-red-700 border-red-200' : 'bg-gray-50 text-gray-400 border-gray-200' },
                     { value: results.noGeo,    label: 'Non localisés', color: results.noGeo > 0 ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-gray-50 text-gray-400 border-gray-200' },
                   ].map(s => (
                     <div key={s.label} className={`rounded-2xl border p-4 ${s.color}`}>
@@ -645,11 +717,87 @@ export default function ImportPage({ commercials, onClose, onImported }) {
                     </div>
                   ))}
                 </div>
-                {results.noGeo > 0 && (
-                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-6 text-left">
-                    ⚠️ {results.noGeo} site{results.noGeo > 1 ? 's' : ''} sans coordonnées GPS — adresse non reconnue ou hors zone (Lyon / Grenoble / Jura / Suisse). Vérifiez l'adresse depuis la fiche site.
-                  </p>
+
+                {/* Sites à corriger */}
+                {fixableRows.filter(r => !r.saved).length > 0 && (
+                  <div className="w-full mb-6 text-left">
+                    <div className="flex items-center gap-2 mb-3">
+                      <AlertCircle size={16} className="text-amber-500" />
+                      <p className="font-semibold text-sm text-gray-800">
+                        {fixableRows.filter(r => !r.saved).length} site{fixableRows.filter(r => !r.saved).length > 1 ? 's' : ''} à corriger
+                      </p>
+                    </div>
+                    <div className="space-y-3">
+                      {fixableRows.map((row, idx) => (
+                        <div key={idx} className={`rounded-2xl border p-4 text-sm transition-all ${
+                          row.saved ? 'bg-emerald-50 border-emerald-200 opacity-60' :
+                          row.issue === 'dberror' ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'
+                        }`}>
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <div className="flex items-center gap-2">
+                              {row.saved
+                                ? <CheckCircle2 size={14} className="text-emerald-500 flex-shrink-0" />
+                                : row.issue === 'dberror'
+                                  ? <AlertCircle size={14} className="text-red-500 flex-shrink-0" />
+                                  : <MapPin size={14} className="text-amber-500 flex-shrink-0" />
+                              }
+                              <span className="font-semibold text-gray-800 truncate">{row.editName || row.payload.name}</span>
+                            </div>
+                            {row.saved && (
+                              <span className="text-xs text-emerald-600 font-semibold flex-shrink-0">
+                                {row.hasGeo ? '✓ Localisé' : '✓ Corrigé'}
+                              </span>
+                            )}
+                          </div>
+                          {row.issue === 'dberror' && !row.saved && (
+                            <p className="text-xs text-red-600 mb-2 bg-red-100 rounded-lg px-2 py-1">{row.dbError}</p>
+                          )}
+                          {!row.saved && (
+                            <div className="space-y-2">
+                              <input
+                                value={row.editName}
+                                onChange={e => setFixableRows(prev => prev.map((r, i) => i === idx ? { ...r, editName: e.target.value } : r))}
+                                placeholder="Nom du site"
+                                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                              />
+                              <input
+                                value={row.editAddress}
+                                onChange={e => setFixableRows(prev => prev.map((r, i) => i === idx ? { ...r, editAddress: e.target.value } : r))}
+                                placeholder="Adresse (numéro + rue)"
+                                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                              />
+                              <div className="flex gap-2">
+                                <input
+                                  value={row.editPostcode}
+                                  onChange={e => setFixableRows(prev => prev.map((r, i) => i === idx ? { ...r, editPostcode: e.target.value } : r))}
+                                  placeholder="Code postal"
+                                  className="w-28 border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                />
+                                <input
+                                  value={row.editCity}
+                                  onChange={e => setFixableRows(prev => prev.map((r, i) => i === idx ? { ...r, editCity: e.target.value } : r))}
+                                  placeholder="Ville"
+                                  className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                />
+                              </div>
+                              <button
+                                onClick={() => saveFixedRow(idx)}
+                                disabled={row.saving}
+                                className="w-full py-2.5 bg-blue-700 hover:bg-blue-800 disabled:opacity-50 text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2"
+                              >
+                                {row.saving
+                                  ? <><Loader2 size={14} className="animate-spin" /> Correction…</>
+                                  : <><RotateCcw size={14} /> Corriger et localiser</>
+                                }
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 )}
+
                 <button
                   onClick={onImported}
                   className="w-full py-4 bg-blue-700 hover:bg-blue-800 text-white rounded-2xl font-bold text-base"
