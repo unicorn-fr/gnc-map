@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import * as XLSX from 'xlsx'
 import { ArrowLeft, Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Loader2, Info, Trash2, History } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { COMMERCIAL_ALIASES } from '../lib/commercials'
 import { geocodeBatch } from '../lib/geocode'
 import toast from 'react-hot-toast'
 
@@ -44,6 +45,11 @@ const matchCommercial = (value, commercials) => {
   if (!value) return null
   const v = String(value).toLowerCase().trim()
   const vUp = String(value).toUpperCase().trim().replace(/\s+/g, '')
+  // Alias Excel (ex : EM → Enzo, CT → Cédric, LJ → Laëtitia)
+  if (COMMERCIAL_ALIASES[vUp]) {
+    const found = commercials.find(c => c.id === COMMERCIAL_ALIASES[vUp])
+    if (found) return found
+  }
   return (
     commercials.find(c => c.name.toLowerCase() === v) ??
     commercials.find(c => getInitials(c.name) === vUp) ??
