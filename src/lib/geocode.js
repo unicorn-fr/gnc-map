@@ -3,6 +3,17 @@
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms))
 
+// ── Zone de travail GNC : Lyon / Grenoble / Jura / Suisse ──────────
+// Tout résultat hors de cette boîte est rejeté — évite les homonymes lointains.
+const WORK = { latMin: 44.0, latMax: 48.5, lngMin: 3.0, lngMax: 9.5 }
+const CENTER_LAT = 46.2
+const CENTER_LNG = 5.9
+
+function inWorkArea(lat, lng) {
+  return lat >= WORK.latMin && lat <= WORK.latMax &&
+         lng >= WORK.lngMin && lng <= WORK.lngMax
+}
+
 function csvEscape(s) {
   return `"${String(s ?? '').replace(/"/g, '""')}"`
 }
@@ -25,32 +36,50 @@ function parseCSVRow(line) {
 }
 
 // ── API adresse.data.gouv.fr (adresse française précise) ─────────
+// lat/lon bias vers le centre de la région pour lever les ambiguïtés.
 export async function geocodeSingle(address, postcode = '', city = '') {
   const q = [address, postcode, city].filter(Boolean).join(' ').trim()
   if (!q) return null
   try {
-    const res = await fetch(`https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(q)}&limit=1`)
+    const url = `https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(q)}&limit=1&lat=${CENTER_LAT}&lon=${CENTER_LNG}`
+    const res = await fetch(url)
     if (!res.ok) return null
     const data = await res.json()
     if (!data.features?.length) return null
     const [lng, lat] = data.features[0].geometry.coordinates
-    return { lat, lng, score: data.features[0].properties.score }
+    const score = data.features[0].properties.score
+    if (!inWorkArea(lat, lng)) return null
+    return { lat, lng, score }
   } catch { return null }
 }
 
 // ── Nominatim (OpenStreetMap) — fallback nom d'entreprise ─────────
+// viewbox restreint la recherche à la région, bounded=1 l'impose strictement.
+// Si rien n'est trouvé dans la zone, retourne null plutôt qu'un résultat lointain.
 async function geocodeNominatim(query) {
   if (!query?.trim()) return null
   try {
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&countrycodes=fr`
+    const viewbox = `${WORK.lngMin},${WORK.latMax},${WORK.lngMax},${WORK.latMin}`
+    const url = [
+      'https://nominatim.openstreetmap.org/search',
+      `?q=${encodeURIComponent(query)}`,
+      '&format=json&limit=3',
+      '&countrycodes=fr,ch',
+      `&viewbox=${viewbox}&bounded=1`,
+    ].join('')
     const res = await fetch(url, { headers: { 'User-Agent': 'GNCMap/1.0' } })
     if (!res.ok) return null
     const data = await res.json()
     if (!data.length) return null
-    const lat = parseFloat(data[0].lat)
-    const lng = parseFloat(data[0].lon)
-    if (isNaN(lat) || isNaN(lng)) return null
-    return { lat, lng, score: data[0].importance ?? 0.4, source: 'nominatim' }
+    // Prendre le meilleur résultat dans la zone
+    for (const item of data) {
+      const lat = parseFloat(item.lat)
+      const lng = parseFloat(item.lon)
+      if (!isNaN(lat) && !isNaN(lng) && inWorkArea(lat, lng)) {
+        return { lat, lng, score: item.importance ?? 0.4, source: 'nominatim' }
+      }
+    }
+    return null
   } catch { return null }
 }
 
@@ -85,6 +114,8 @@ export async function geocodeBatch(rows, cols, onProgress) {
     fd.append('columns', 'adresse')
     fd.append('columns', 'code_postal')
     fd.append('columns', 'ville')
+    fd.append('lat', String(CENTER_LAT))
+    fd.append('lon', String(CENTER_LNG))
 
     const res = await fetch('https://api-adresse.data.gouv.fr/search/csv/', { method: 'POST', body: fd })
     if (res.ok) {
@@ -102,7 +133,8 @@ export async function geocodeBatch(rows, cols, onProgress) {
           const lat   = parseFloat(parts[latI])
           const lng   = parseFloat(parts[lngI])
           const score = parseFloat(parts[scI] ?? 0)
-          if (!isNaN(lat) && !isNaN(lng) && score >= 0.3) {
+          // Seuil de score relevé à 0.4 + vérification zone géographique
+          if (!isNaN(lat) && !isNaN(lng) && score >= 0.4 && inWorkArea(lat, lng)) {
             results[toGeocode[bi].i] = { lat, lng, score }
           }
         })
@@ -115,21 +147,37 @@ export async function geocodeBatch(rows, cols, onProgress) {
 
   // ── Étape 2 : fallback Nominatim (max 30 lignes) ────────────────
   const failed = toGeocode.filter(r => !results[r.i])
-  // Limité à 30 pour éviter un délai trop long (1,1s/req × Nominatim)
   const nominatimCandidates = failed.slice(0, 30)
 
   if (nominatimCandidates.length > 0 && companyCol) {
     let done = 0
     for (const r of nominatimCandidates) {
       const company = String(rows[r.i]?.[companyCol] ?? '').trim()
+
+      // Tentative 1 : entreprise + adresse complète
       if (company) {
         const q1 = [company, r.addr, r.cp, r.city].filter(Boolean).join(' ')
         let geo = await geocodeNominatim(q1)
+
+        // Tentative 2 : entreprise + ville seulement
         if (!geo && (r.city || r.cp)) {
           await sleep(1100)
-          const q2 = [company, r.cp, r.city, 'France'].filter(Boolean).join(' ')
+          const q2 = [company, r.cp, r.city].filter(Boolean).join(' ')
           geo = await geocodeNominatim(q2)
         }
+
+        // Tentative 3 : adresse + ville sans nom d'entreprise
+        if (!geo && r.addr && r.city) {
+          await sleep(1100)
+          geo = await geocodeSingle(r.addr, r.cp, r.city)
+        }
+
+        // Tentative 4 : ville seule (au moins positionner dans la bonne commune)
+        if (!geo && r.city) {
+          await sleep(1100)
+          geo = await geocodeSingle('', r.cp, r.city)
+        }
+
         if (geo) results[r.i] = geo
         await sleep(1100)
       }
@@ -137,10 +185,15 @@ export async function geocodeBatch(rows, cols, onProgress) {
       onProgress(geocodedCount + done, rows.length, 'nominatim')
     }
   } else if (failed.length > 0) {
-    // Pas de colonne entreprise → fallback série sur data.gouv.fr
     let done = 0
     for (const r of failed) {
-      results[r.i] = await geocodeSingle(r.addr, r.cp, r.city)
+      let geo = await geocodeSingle(r.addr, r.cp, r.city)
+      // Fallback : ville seule si adresse précise échoue
+      if (!geo && r.city) {
+        await sleep(200)
+        geo = await geocodeSingle('', r.cp, r.city)
+      }
+      results[r.i] = geo
       await sleep(200)
       done++
       onProgress(geocodedCount + done, rows.length, 'batch')

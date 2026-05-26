@@ -1,10 +1,16 @@
 import { useState, useEffect } from 'react'
-import { X, Edit2, Trash2, Camera, Loader2, Phone, Mail, MapPin, Copy } from 'lucide-react'
+import { X, Edit2, Trash2, Camera, Loader2, Phone, Mail, MapPin, Copy, LocateFixed } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { compressImage } from '../lib/compressImage'
 import { sendPushToAll } from '../lib/push'
 import { firstName } from '../lib/utils'
+import { geocodeSingle } from '../lib/geocode'
 import toast from 'react-hot-toast'
+
+// Zone de travail GNC — même constante que geocode.js
+const WORK = { latMin: 44.0, latMax: 48.5, lngMin: 3.0, lngMax: 9.5 }
+const inWorkArea = (lat, lng) =>
+  lat >= WORK.latMin && lat <= WORK.latMax && lng >= WORK.lngMin && lng <= WORK.lngMax
 
 const STATUS = {
   prospect: { label: 'Prospect', cls: 'bg-amber-100 text-amber-800' },
@@ -35,6 +41,30 @@ export default function SiteDetailPanel({ site, commercial, currentCommercial, c
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [lightbox, setLightbox] = useState(null)
+  const [regeocing, setRegeocing] = useState(false)
+
+  const needsGeoFix = !site.lat || (site.lat && !inWorkArea(site.lat, site.lng))
+
+  const handleRegeocode = async () => {
+    if (!site.address && !site.city) {
+      toast.error('Aucune adresse disponible pour localiser ce site')
+      return
+    }
+    setRegeocing(true)
+    const geo = await geocodeSingle(site.address || '', site.postcode || '', site.city || '')
+    setRegeocing(false)
+    if (!geo) {
+      toast.error('Adresse non trouvée dans la zone Lyon / Grenoble / Jura / Suisse')
+      return
+    }
+    const { error } = await supabase
+      .from('sites')
+      .update({ lat: geo.lat, lng: geo.lng, updated_at: new Date().toISOString() })
+      .eq('id', site.id)
+    if (error) { toast.error('Erreur lors de la mise à jour'); return }
+    toast.success('Position corrigée ✓')
+    onUpdated({ ...site, lat: geo.lat, lng: geo.lng })
+  }
 
   const isOwner = currentCommercialId === site.commercial_id
   const statusInfo = STATUS[site.status] ?? STATUS.prospect
@@ -298,7 +328,7 @@ export default function SiteDetailPanel({ site, commercial, currentCommercial, c
               )}
 
               {/* Boutons navigation GPS */}
-              {site.lat && (
+              {site.lat && !needsGeoFix && (
                 <div className="flex gap-2 pt-1">
                   <a
                     href={`https://waze.com/ul?ll=${site.lat},${site.lng}&navigate=yes`}
@@ -316,6 +346,25 @@ export default function SiteDetailPanel({ site, commercial, currentCommercial, c
                   >
                     🗺️ Google Maps
                   </a>
+                </div>
+              )}
+
+              {/* Alerte + bouton recorrection si hors zone ou pas de coordonnées */}
+              {needsGeoFix && (site.address || site.city) && (
+                <div className="mt-1 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 flex items-center gap-2">
+                  <span className="text-amber-600 text-xs flex-1">
+                    {!site.lat ? 'Position inconnue' : '⚠️ Position hors zone (erreur de géocodage)'}
+                  </span>
+                  <button
+                    onClick={handleRegeocode}
+                    disabled={regeocing}
+                    className="flex items-center gap-1.5 text-xs font-bold text-amber-700 hover:text-amber-900 disabled:opacity-50"
+                  >
+                    {regeocing
+                      ? <Loader2 size={13} className="animate-spin" />
+                      : <LocateFixed size={13} />}
+                    {regeocing ? 'Recherche…' : 'Recalculer'}
+                  </button>
                 </div>
               )}
 
