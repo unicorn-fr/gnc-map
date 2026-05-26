@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo, memo } from 'react'
 import ReactMap, { Marker } from 'react-map-gl/maplibre'
-import { Menu, Plus, Navigation, X, Search, Layers } from 'lucide-react'
+import { Menu, Plus, Navigation, X, Search, Layers, Mic } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { requestAndSubscribe } from '../lib/push'
 import { firstName } from '../lib/utils'
@@ -9,6 +9,7 @@ import Sidebar from './Sidebar'
 import SearchBar from './SearchBar'
 import AddSiteModal from './AddSiteModal'
 import SiteDetailPanel from './SiteDetailPanel'
+import VoiceNavModal from './VoiceNavModal'
 import ImportPage from './ImportPage'
 import ReportsPage from './ReportsPage'
 import InstallBanner from './InstallBanner'
@@ -16,6 +17,10 @@ import toast from 'react-hot-toast'
 
 const STREET_STYLE = 'https://tiles.openfreemap.org/styles/bright'
 const APP_CACHE_KEY = 'gnc_app_data_v1'
+const NAV_PREF_KEY = 'gnc_nav_pref'
+
+// Hauteur de la nav bar (px, hors safe-area). Doit correspondre au CSS.
+const NAV_H = 64
 
 function getCachedAppData() {
   try { return JSON.parse(localStorage.getItem(APP_CACHE_KEY) || 'null') } catch { return null }
@@ -61,7 +66,6 @@ const SiteMarker = memo(function SiteMarker({ site, color, onSelect }) {
 })
 
 export default function MapView({ commercial, onSwitch, installPrompt, onInstalled }) {
-  // Initialiser depuis le cache localStorage ou les données statiques — zéro latence
   const [allCommercials, setAllCommercials] = useState(() => getCachedAppData()?.comms ?? COMMERCIALS)
   const [sites, setSites] = useState(() => (getCachedAppData()?.sites ?? []).filter(s => !s.deleted))
   const [selectedSite, setSelectedSite] = useState(null)
@@ -80,7 +84,11 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
   const [visibleTypes, setVisibleTypes] = useState(new Set(['siege', 'chantier']))
   const [flyTo, setFlyTo] = useState(null)
   const [mapStyle, setMapStyle] = useState('street')
+  // showSearch: false | 'text' | 'voice'
   const [showSearch, setShowSearch] = useState(false)
+  // voiceNavSite: site object when voice nav modal is needed
+  const [voiceNavSite, setVoiceNavSite] = useState(null)
+
   const mapRef = useRef(null)
   const watchIdRef = useRef(null)
   const pendingSiteIdRef = useRef(null)
@@ -102,7 +110,6 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
     const timer = setTimeout(startTracking, 100)
     requestAndSubscribe(commercial.id)
 
-    // Préchauffer la zone Jura/Lyon/Suisse dès le démarrage, sans attendre le GPS
     if (navigator.serviceWorker?.controller) {
       navigator.serviceWorker.controller.postMessage({ type: 'PREWARM_STATIC' })
     } else {
@@ -158,7 +165,6 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         if (firstFix) {
           firstFix = false
           if (!hasSavedView) setFlyTo({ lat, lng })
-          // Préchauffer les tuiles autour de la position GPS en arrière-plan
           if (navigator.serviceWorker?.controller) {
             navigator.serviceWorker.controller.postMessage({ type: 'PREWARM_MAP', lat, lng })
           }
@@ -193,7 +199,6 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         })
       })
     }
-    // Persister les données fraîches pour le prochain démarrage (zéro latence)
     if (comms && sitesData) {
       try { localStorage.setItem(APP_CACHE_KEY, JSON.stringify({ comms, sites: sitesData })) } catch {}
     }
@@ -269,6 +274,30 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
   const getColor = useCallback((id) => colorMap[id] ?? '#6B7280', [colorMap])
   const handleSelectSite = useCallback((site) => setSelectedSite(site), [])
 
+  // Navigation vocale : ouvre directement si préférence mémorisée, sinon modal
+  const handleVoiceNav = useCallback((site) => {
+    if (!site?.lat) return
+    const pref = localStorage.getItem(NAV_PREF_KEY)
+    if (pref === 'waze') {
+      window.open(`https://waze.com/ul?ll=${site.lat},${site.lng}&navigate=yes`, '_blank', 'noopener')
+      return
+    }
+    if (pref === 'gmaps') {
+      window.open(`https://www.google.com/maps/dir/?api=1&destination=${site.lat},${site.lng}`, '_blank', 'noopener')
+      return
+    }
+    setVoiceNavSite(site)
+  }, [])
+
+  // Sélection depuis recherche vocale → ouvre directement le modal de navigation
+  const handleVoiceSelectSite = useCallback((site) => {
+    setSelectedSite(site)
+    if (site.lat && site.lng) {
+      setFlyTo({ lat: site.lat, lng: site.lng })
+      handleVoiceNav(site)
+    }
+  }, [handleVoiceNav])
+
   const handleLocateMe = async () => {
     if (!navigator.geolocation) return toast.error('Géolocalisation non disponible sur cet appareil')
     if (userPosition) { setFlyTo({ lat: userPosition[0], lng: userPosition[1] }); return }
@@ -328,19 +357,32 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
   }
 
   return (
-    <div style={{ height: '100dvh' }} className="flex flex-col">
+    <div style={{ height: '100dvh' }} className="flex flex-col overflow-hidden">
 
+      {/* Overlay recherche (text ou vocal) */}
       {showSearch && (
         <SearchBar
           sites={sites}
           allCommercials={allCommercials}
           getColor={getColor}
+          autoVoice={showSearch === 'voice'}
           onSelectSite={(site) => {
-            setSelectedSite(site)
-            if (site.lat && site.lng) setFlyTo({ lat: site.lat, lng: site.lng })
-            setShowSearch(false)
+            if (showSearch === 'voice') {
+              handleVoiceSelectSite(site)
+            } else {
+              setSelectedSite(site)
+              if (site.lat && site.lng) setFlyTo({ lat: site.lat, lng: site.lng })
+            }
           }}
           onClose={() => setShowSearch(false)}
+        />
+      )}
+
+      {/* Modal navigation vocale */}
+      {voiceNavSite && (
+        <VoiceNavModal
+          site={voiceNavSite}
+          onClose={() => setVoiceNavSite(null)}
         />
       )}
 
@@ -364,7 +406,11 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         </button>
       </div>
 
-      <div className="flex-1 relative" style={{ minHeight: 0 }}>
+      {/* Zone carte — padding-bottom pour compenser la nav bar fixe */}
+      <div
+        className="flex-1 relative"
+        style={{ minHeight: 0, paddingBottom: `calc(${NAV_H}px + env(safe-area-inset-bottom, 0px))` }}
+      >
 
         {showSidebar && (
           <div className="absolute inset-0 flex" style={{ zIndex: 1200 }}>
@@ -391,7 +437,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         )}
 
         {showLocationHelp && (
-          <div className="absolute inset-0 flex items-end justify-center p-4 pb-8" style={{ zIndex: 2000, background: 'rgba(0,0,0,0.5)' }}>
+          <div className="absolute inset-0 flex items-center justify-center p-4" style={{ zIndex: 2000, background: 'rgba(0,0,0,0.5)' }}>
             <div className="bg-white rounded-3xl shadow-2xl p-5 w-full max-w-sm">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-bold text-gray-900 text-base">Localisation bloquée</h3>
@@ -415,7 +461,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           </div>
         )}
 
-        {/* Carte MapLibre GL — rendu WebGL, fluide comme Google Maps */}
+        {/* Carte MapLibre GL */}
         <ReactMap
           ref={mapRef}
           initialViewState={getSavedView() ?? { longitude: 5.9, latitude: 46.5, zoom: 9 }}
@@ -463,8 +509,12 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           ))}
         </div>
 
+        {/* Panneau détail site */}
         {selectedSite && (
-          <div className="absolute inset-y-0 right-0 w-full sm:w-96" style={{ zIndex: 1050 }}>
+          <div
+            className="absolute inset-y-0 right-0 w-full sm:w-96"
+            style={{ zIndex: 1050 }}
+          >
             <SiteDetailPanel
               site={selectedSite}
               commercial={allCommercials.find(c => c.id === selectedSite.commercial_id)}
@@ -472,10 +522,15 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
               currentCommercialId={commercial.id}
               color={getColor(selectedSite.commercial_id)}
               onClose={() => setSelectedSite(null)}
-              onUpdated={(deleted) => {
-                if (deleted && selectedSite) {
+              onUpdated={(result) => {
+                if (!result || result === true) {
+                  // Site supprimé
                   setSites(prev => prev.filter(s => s.id !== selectedSite.id))
                   setSelectedSite(null)
+                } else if (typeof result === 'object' && result.id) {
+                  // Site mis à jour (ex: nouvelle position GPS)
+                  setSites(prev => prev.map(s => s.id === result.id ? result : s))
+                  setSelectedSite(result)
                 }
               }}
             />
@@ -483,46 +538,56 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         )}
       </div>
 
-      {/* ── Barre de navigation bas ─────────────────────────────── */}
+      {/* ── Barre de navigation fixe — toujours visible ─────────── */}
       <div
-        className="flex-shrink-0 bg-white border-t border-gray-200 shadow-2xl"
-        style={{ zIndex: 1100, paddingBottom: 'env(safe-area-inset-bottom)' }}
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 2000,
+          background: 'white',
+          borderTop: '1px solid #e5e7eb',
+          boxShadow: '0 -4px 24px rgba(0,0,0,0.10)',
+          paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+        }}
       >
-        <div className="flex items-end">
+        <div className="flex items-end" style={{ height: `${NAV_H}px` }}>
 
-          {/* Recherche */}
+          {/* Rechercher (texte) */}
           <button
-            onClick={() => setShowSearch(true)}
-            className="flex-1 flex flex-col items-center gap-1 py-3 text-blue-700 active:bg-blue-50 transition-colors"
+            onClick={() => setShowSearch('text')}
+            className="flex-1 flex flex-col items-center justify-center gap-1 h-full text-blue-700 active:bg-blue-50 transition-colors"
           >
             <Search size={22} strokeWidth={2} />
             <span className="text-[10px] font-bold uppercase tracking-wide">Rechercher</span>
           </button>
 
-          {/* Localiser */}
+          {/* Dicter (vocal) */}
           <button
-            onClick={handleLocateMe}
-            className="flex-1 flex flex-col items-center gap-1 py-3 text-gray-500 active:bg-gray-50 transition-colors"
+            onClick={() => setShowSearch('voice')}
+            className="flex-1 flex flex-col items-center justify-center gap-1 h-full text-gray-500 active:bg-gray-50 transition-colors"
           >
-            <Navigation size={22} strokeWidth={2} />
-            <span className="text-[10px] font-semibold uppercase tracking-wide">Localiser</span>
+            <Mic size={22} strokeWidth={2} />
+            <span className="text-[10px] font-semibold uppercase tracking-wide">Dicter</span>
           </button>
 
           {/* Ajouter — bouton central saillant */}
-          <div className="flex flex-col items-center pb-2 px-2">
+          <div className="flex flex-col items-center justify-end pb-2 px-2" style={{ height: `${NAV_H}px` }}>
             <button
               onClick={handleAddHere}
-              className="w-16 h-16 bg-blue-700 rounded-full flex items-center justify-center text-white shadow-2xl active:scale-95 transition-transform -mt-8 border-4 border-white"
+              style={{ marginTop: -28 }}
+              className="w-16 h-16 bg-blue-700 rounded-full flex items-center justify-center text-white shadow-2xl active:scale-95 transition-transform border-4 border-white"
             >
               <Plus size={30} strokeWidth={2.5} />
             </button>
             <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mt-1">Ajouter</span>
           </div>
 
-          {/* Vue satellite */}
+          {/* Satellite / Plan */}
           <button
             onClick={() => setMapStyle(s => s === 'street' ? 'satellite' : 'street')}
-            className={`flex-1 flex flex-col items-center gap-1 py-3 transition-colors active:bg-gray-50 ${mapStyle === 'satellite' ? 'text-blue-700' : 'text-gray-500'}`}
+            className={`flex-1 flex flex-col items-center justify-center gap-1 h-full transition-colors active:bg-gray-50 ${mapStyle === 'satellite' ? 'text-blue-700' : 'text-gray-500'}`}
           >
             <Layers size={22} strokeWidth={2} />
             <span className="text-[10px] font-semibold uppercase tracking-wide">
@@ -530,17 +595,39 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
             </span>
           </button>
 
-          {/* Menu / Filtres */}
+          {/* Menu / Localiser */}
           <button
-            onClick={() => setShowSidebar(true)}
-            className="flex-1 flex flex-col items-center gap-1 py-3 text-gray-500 active:bg-gray-50 transition-colors"
+            onClick={handleLocateMe}
+            className="flex-1 flex flex-col items-center justify-center gap-1 h-full text-gray-500 active:bg-gray-50 transition-colors"
           >
-            <Menu size={22} strokeWidth={2} />
-            <span className="text-[10px] font-semibold uppercase tracking-wide">Menu</span>
+            <Navigation size={22} strokeWidth={2} />
+            <span className="text-[10px] font-semibold uppercase tracking-wide">Localiser</span>
           </button>
 
         </div>
       </div>
+
+      {/* Bouton menu flottant (accessible même avec le panneau ouvert) */}
+      <button
+        onClick={() => setShowSidebar(true)}
+        style={{
+          position: 'fixed',
+          bottom: `calc(${NAV_H}px + env(safe-area-inset-bottom, 0px) + 12px)`,
+          right: 16,
+          zIndex: 1900,
+          background: 'white',
+          border: '1px solid #e5e7eb',
+          borderRadius: '50%',
+          width: 44,
+          height: 44,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          boxShadow: '0 2px 12px rgba(0,0,0,0.15)',
+        }}
+      >
+        <Menu size={20} strokeWidth={2} className="text-gray-600" />
+      </button>
 
       {showAddModal && (
         <AddSiteModal
