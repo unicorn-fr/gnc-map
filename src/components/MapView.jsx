@@ -414,25 +414,33 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         </button>
       </div>
 
-      {/* ── Barre de recherche — dans le flux, juste sous le header ─
-          Jamais cachée. Aucun z-index, aucun absolute, aucun trick.  */}
-      <div style={{ flexShrink: 0, background: '#1e3a5f', padding: '0 12px 10px' }}>
+      {/* ── Barre de recherche — dans le flux, juste sous le header ─ */}
+      <div style={{ flexShrink: 0, background: '#1e3a5f', padding: '8px 12px 12px' }}>
         <div style={{
           display: 'flex', alignItems: 'center', gap: 10,
-          background: 'white', borderRadius: 14, padding: '10px 12px',
-          boxShadow: '0 2px 12px rgba(0,0,0,0.2)',
+          background: 'white', borderRadius: 16, padding: '12px 14px',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.35)',
+          minHeight: 50,
         }}>
-          <Search size={18} strokeWidth={2.5} style={{ color: '#1D4ED8', flexShrink: 0 }} />
-          <div onClick={() => setShowSearch('text')} style={{ flex: 1, cursor: 'pointer' }}>
-            <span style={{ fontSize: 14, color: '#9CA3AF', fontWeight: 500 }}>Rechercher un site…</span>
+          <Search size={20} strokeWidth={2.5} style={{ color: '#1D4ED8', flexShrink: 0 }} />
+          <div
+            onClick={() => setShowSearch('text')}
+            style={{ flex: 1, cursor: 'pointer', userSelect: 'none' }}
+          >
+            <span style={{ fontSize: 15, color: '#6B7280', fontWeight: 500 }}>
+              Rechercher un site…
+            </span>
           </div>
-          <div style={{ width: 1, height: 20, background: '#E5E7EB', flexShrink: 0 }} />
-          <button onClick={() => setShowSearch('voice')} style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            width: 34, height: 34, borderRadius: '50%',
-            background: '#EFF6FF', border: 'none', cursor: 'pointer', flexShrink: 0,
-          }}>
-            <Mic size={16} strokeWidth={2} style={{ color: '#1D4ED8' }} />
+          <div style={{ width: 1, height: 22, background: '#E5E7EB', flexShrink: 0 }} />
+          <button
+            onClick={() => setShowSearch('voice')}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: 38, height: 38, borderRadius: '50%',
+              background: '#1D4ED8', border: 'none', cursor: 'pointer', flexShrink: 0,
+            }}
+          >
+            <Mic size={18} strokeWidth={2} style={{ color: 'white' }} />
           </button>
         </div>
       </div>
