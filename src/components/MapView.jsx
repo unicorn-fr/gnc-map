@@ -97,9 +97,17 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
 
     loadAll()
     const cleanup = setupRealtime()
-    // Démarrer le GPS immédiatement — pas de délai, la carte ouvre au bon endroit
     const timer = setTimeout(startTracking, 100)
     requestAndSubscribe(commercial.id)
+
+    // Préchauffer la zone Jura/Lyon/Suisse dès le démarrage, sans attendre le GPS
+    if (navigator.serviceWorker?.controller) {
+      navigator.serviceWorker.controller.postMessage({ type: 'PREWARM_STATIC' })
+    } else {
+      navigator.serviceWorker?.ready.then(reg => {
+        reg.active?.postMessage({ type: 'PREWARM_STATIC' })
+      })
+    }
 
     const handleVisible = () => {
       if (document.visibilityState === 'visible') loadAll()
@@ -398,7 +406,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         {/* Carte MapLibre GL — rendu WebGL, fluide comme Google Maps */}
         <ReactMap
           ref={mapRef}
-          initialViewState={getSavedView() ?? { longitude: 2.3522, latitude: 48.8566, zoom: 6 }}
+          initialViewState={getSavedView() ?? { longitude: 5.9, latitude: 46.5, zoom: 9 }}
           style={{ width: '100%', height: '100%' }}
           mapStyle={mapStyle === 'satellite' ? SATELLITE_STYLE : STREET_STYLE}
           onClick={handleMapClick}
