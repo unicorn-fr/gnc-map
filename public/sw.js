@@ -1,4 +1,4 @@
-const CACHE = 'gnc-map-v18'
+const CACHE = 'gnc-map-v19'
 const TILE_CACHE = 'gnc-tiles-v11'
 const STYLE_CACHE = 'gnc-styles-v1'
 

@@ -48,12 +48,10 @@ export default function VoiceSearchModal({ sites, allCommercials, getColor, onSe
   const silenceTimer = useRef(null)
   const canAutoStop  = useRef(false)
 
-  // Démarrer l'écoute dès l'ouverture — continuous:true pour rester ouvert
+  // resetTranscript + armer le timer ; startListening a déjà été appelé par onClick dans MapView
   useEffect(() => {
     resetTranscript()
     canAutoStop.current = false
-    SpeechRecognition.startListening({ language: 'fr-FR', continuous: true })
-    // 2 s minimum avant de pouvoir auto-stopper (temps pour commencer à parler)
     const minTimer = setTimeout(() => { canAutoStop.current = true }, 2000)
     return () => {
       clearTimeout(minTimer)
