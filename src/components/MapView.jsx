@@ -4,6 +4,7 @@ import { Menu, Plus, Navigation, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { requestAndSubscribe } from '../lib/push'
 import { firstName } from '../lib/utils'
+import { COMMERCIALS } from '../lib/commercials'
 import Sidebar from './Sidebar'
 import AddSiteModal from './AddSiteModal'
 import SiteDetailPanel from './SiteDetailPanel'
@@ -59,8 +60,8 @@ const SiteMarker = memo(function SiteMarker({ site, color, onSelect }) {
 })
 
 export default function MapView({ commercial, onSwitch, installPrompt, onInstalled }) {
-  // Initialiser depuis le cache localStorage — zéro latence au démarrage
-  const [allCommercials, setAllCommercials] = useState(() => getCachedAppData()?.comms ?? [])
+  // Initialiser depuis le cache localStorage ou les données statiques — zéro latence
+  const [allCommercials, setAllCommercials] = useState(() => getCachedAppData()?.comms ?? COMMERCIALS)
   const [sites, setSites] = useState(() => (getCachedAppData()?.sites ?? []).filter(s => !s.deleted))
   const [selectedSite, setSelectedSite] = useState(null)
   const [showAddModal, setShowAddModal] = useState(false)
@@ -72,7 +73,8 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
   const [userPosition, setUserPosition] = useState(null)
   const [visibleCommercials, setVisibleCommercials] = useState(() => {
     const cached = getCachedAppData()
-    return cached?.comms?.length ? new Set(cached.comms.map(c => c.id)) : new Set()
+    const comms = cached?.comms?.length ? cached.comms : COMMERCIALS
+    return new Set(comms.map(c => c.id))
   })
   const [visibleTypes, setVisibleTypes] = useState(new Set(['siege', 'chantier']))
   const [flyTo, setFlyTo] = useState(null)

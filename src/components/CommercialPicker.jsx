@@ -1,26 +1,13 @@
-import { useEffect, useState } from 'react'
-import { supabase } from '../lib/supabase'
+import { useState } from 'react'
+import { COMMERCIALS } from '../lib/commercials'
 import { checkAndClaimSession } from '../lib/session'
 import { firstName } from '../lib/utils'
 import { MapPin, Loader2, AlertCircle } from 'lucide-react'
 import InstallBanner from './InstallBanner'
 
 export default function CommercialPicker({ onSelect, installPrompt, onInstalled }) {
-  const [commercials, setCommercials] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [checking, setChecking] = useState(null) // commercial id en cours de vérification
-  const [sessionError, setSessionError] = useState(null) // { name, message }
-
-  useEffect(() => {
-    supabase
-      .from('commercials')
-      .select('*')
-      .order('created_at')
-      .then(({ data }) => {
-        if (data) setCommercials(data)
-        setLoading(false)
-      })
-  }, [])
+  const [checking, setChecking] = useState(null)
+  const [sessionError, setSessionError] = useState(null)
 
   const handlePick = async (c) => {
     setSessionError(null)
@@ -45,14 +32,12 @@ export default function CommercialPicker({ onSelect, installPrompt, onInstalled 
         <p className="text-blue-300 mt-2">Groupe Nord Coffrage</p>
       </div>
 
-      {/* Prompt */}
       <div className="mb-6 text-center">
         <p className="text-white/60 text-sm font-medium uppercase tracking-widest">
           Qui êtes-vous ?
         </p>
       </div>
 
-      {/* Erreur session */}
       {sessionError && (
         <div className="w-full max-w-sm mb-4 bg-red-500/20 border border-red-400/40 rounded-2xl px-4 py-3 flex items-start gap-3">
           <AlertCircle size={18} className="text-red-300 flex-shrink-0 mt-0.5" />
@@ -63,55 +48,31 @@ export default function CommercialPicker({ onSelect, installPrompt, onInstalled 
         </div>
       )}
 
-      {/* Commercial cards */}
-      {loading ? (
-        <div className="flex items-center gap-2 text-white/50">
-          <Loader2 size={18} className="animate-spin" />
-          Chargement...
-        </div>
-      ) : (
-        <div className="flex flex-col gap-4 w-full max-w-sm">
-          {commercials.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => handlePick(c)}
-              disabled={checking !== null}
-              className="group flex items-center gap-4 bg-white/10 hover:bg-white/20 active:scale-98 backdrop-blur border border-white/10 hover:border-white/30 rounded-2xl px-6 py-5 transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-60"
+      <div className="flex flex-col gap-4 w-full max-w-sm">
+        {COMMERCIALS.map((c) => (
+          <button
+            key={c.id}
+            onClick={() => handlePick(c)}
+            disabled={checking !== null}
+            className="group flex items-center gap-4 bg-white/10 hover:bg-white/20 active:scale-98 backdrop-blur border border-white/10 hover:border-white/30 rounded-2xl px-6 py-5 transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-60"
+          >
+            <div
+              className="w-14 h-14 rounded-2xl flex items-center justify-center text-white font-extrabold text-xl shadow-md flex-shrink-0"
+              style={{ background: c.color }}
             >
-              {/* Avatar */}
-              <div
-                className="w-14 h-14 rounded-2xl flex items-center justify-center text-white font-extrabold text-xl shadow-md flex-shrink-0"
-                style={{ background: c.color }}
-              >
-                {checking === c.id
-                  ? <Loader2 size={22} className="animate-spin" />
-                  : c.name.charAt(0).toUpperCase()
-                }
-              </div>
-
-              {/* Name */}
-              <div className="flex-1 text-left">
-                <p className="text-white font-bold text-lg leading-tight">{firstName(c.name)}</p>
-                <p className="text-white/40 text-sm mt-0.5">Appuyer pour accéder</p>
-              </div>
-
-              {/* Arrow */}
-              <div className="text-white/30 group-hover:text-white/70 transition-colors">
-                →
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {commercials.length === 0 && !loading && (
-        <div className="text-center text-white/50 max-w-xs">
-          <p className="text-lg mb-2">⚠️ Aucun commercial trouvé</p>
-          <p className="text-sm">
-            Exécutez le script SQL dans Supabase pour initialiser la base de données.
-          </p>
-        </div>
-      )}
+              {checking === c.id
+                ? <Loader2 size={22} className="animate-spin" />
+                : c.name.charAt(0).toUpperCase()
+              }
+            </div>
+            <div className="flex-1 text-left">
+              <p className="text-white font-bold text-lg leading-tight">{firstName(c.name)}</p>
+              <p className="text-white/40 text-sm mt-0.5">Appuyer pour accéder</p>
+            </div>
+            <div className="text-white/30 group-hover:text-white/70 transition-colors">→</div>
+          </button>
+        ))}
+      </div>
 
       <InstallBanner installPrompt={installPrompt} onInstalled={onInstalled} />
 
