@@ -6,9 +6,9 @@ export const COMMERCIALS = [
   { id: 'c1000000-0000-0000-0000-000000000003', name: 'Laëtitia', color: '#D97706' },
 ]
 
-// Aliases utilisés dans les fichiers Excel (initiales prénom+nom → id)
+// Aliases utilisés dans les fichiers Excel (initiales → prénom en base)
 export const COMMERCIAL_ALIASES = {
-  'CT': 'c1000000-0000-0000-0000-000000000001', // Cédric Tissot
-  'EM': 'c1000000-0000-0000-0000-000000000002', // Enzo Mercier
-  'LJ': 'c1000000-0000-0000-0000-000000000003', // Laëtitia J.
+  'CT': 'cedric',
+  'EM': 'enzo',
+  'LJ': 'laetitia',
 }
