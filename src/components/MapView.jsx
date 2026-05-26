@@ -391,84 +391,54 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         <VoiceNavModal site={voiceNavSite} onClose={() => setVoiceNavSite(null)} />
       )}
 
-      {/* ══════════════════════════════════════════════════════════
-          HEADER + ONGLET RECHERCHE
-          L'onglet blanc dépasse de 24px en dessous du header bleu.
-          Rendu avant la carte → toujours visible sur tout appareil.
-      ══════════════════════════════════════════════════════════ */}
+      {/* ── Header bleu ─────────────────────────────────────────── */}
       <div style={{
-        flexShrink: 0,
-        position: 'relative',
-        background: '#172554',
-        zIndex: 200,
-        overflow: 'visible',        /* permet à l'onglet de déborder */
-        paddingBottom: 24,          /* espace pour l'onglet */
+        flexShrink: 0, background: '#172554',
+        display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px',
       }}>
-        {/* Ligne titre + commercial */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px 0' }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <p style={{ fontWeight: 800, fontSize: 15, color: 'white', lineHeight: 1.2, margin: 0 }}>GNC Map</p>
-            <p style={{ fontSize: 11, color: '#93C5FD', margin: 0 }}>Groupe Nord Coffrage</p>
-          </div>
-          <button onClick={onSwitch} style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            background: 'rgba(255,255,255,0.12)', borderRadius: 12,
-            padding: '6px 12px', border: 'none', cursor: 'pointer',
-          }}>
-            <div style={{
-              width: 24, height: 24, borderRadius: 8, background: commercial.color,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: 'white', fontWeight: 700, fontSize: 12,
-            }}>{commercial.name.charAt(0).toUpperCase()}</div>
-            <span style={{ color: 'white', fontSize: 12, fontWeight: 600 }}>{firstName(commercial.name)}</span>
-          </button>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p style={{ fontWeight: 800, fontSize: 15, color: 'white', lineHeight: 1.2, margin: 0 }}>GNC Map</p>
+          <p style={{ fontSize: 11, color: '#93C5FD', margin: 0 }}>Groupe Nord Coffrage</p>
         </div>
-
-        {/* ── Onglet recherche (dépasse du bas du header) ───────── */}
-        <div style={{
-          position: 'absolute',
-          bottom: -20,
-          left: 16, right: 16,      /* pleine largeur avec marges */
-          zIndex: 300,
-          display: 'flex', alignItems: 'center', gap: 10,
-          background: 'white',
-          borderRadius: 16,
-          padding: '10px 14px',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.22)',
+        <button onClick={onSwitch} style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          background: 'rgba(255,255,255,0.12)', borderRadius: 12,
+          padding: '6px 12px', border: 'none', cursor: 'pointer',
         }}>
-          {/* Icône loupe */}
+          <div style={{
+            width: 24, height: 24, borderRadius: 8, background: commercial.color,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: 'white', fontWeight: 700, fontSize: 12,
+          }}>{commercial.name.charAt(0).toUpperCase()}</div>
+          <span style={{ color: 'white', fontSize: 12, fontWeight: 600 }}>{firstName(commercial.name)}</span>
+        </button>
+      </div>
+
+      {/* ── Barre de recherche — dans le flux, juste sous le header ─
+          Jamais cachée. Aucun z-index, aucun absolute, aucun trick.  */}
+      <div style={{ flexShrink: 0, background: '#1e3a5f', padding: '0 12px 10px' }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          background: 'white', borderRadius: 14, padding: '10px 12px',
+          boxShadow: '0 2px 12px rgba(0,0,0,0.2)',
+        }}>
           <Search size={18} strokeWidth={2.5} style={{ color: '#1D4ED8', flexShrink: 0 }} />
-
-          {/* Zone texte cliquable */}
-          <div
-            onClick={() => setShowSearch('text')}
-            style={{ flex: 1, cursor: 'text' }}
-          >
-            <span style={{ fontSize: 14, color: '#9CA3AF', fontWeight: 500, userSelect: 'none' }}>
-              Rechercher un site…
-            </span>
+          <div onClick={() => setShowSearch('text')} style={{ flex: 1, cursor: 'pointer' }}>
+            <span style={{ fontSize: 14, color: '#9CA3AF', fontWeight: 500 }}>Rechercher un site…</span>
           </div>
-
-          {/* Séparateur vertical */}
           <div style={{ width: 1, height: 20, background: '#E5E7EB', flexShrink: 0 }} />
-
-          {/* Bouton micro — dicter avec la voix */}
-          <button
-            onClick={() => setShowSearch('voice')}
-            style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              width: 34, height: 34, borderRadius: '50%',
-              background: '#EFF6FF', border: 'none', cursor: 'pointer', flexShrink: 0,
-            }}
-            title="Dicter"
-          >
+          <button onClick={() => setShowSearch('voice')} style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: 34, height: 34, borderRadius: '50%',
+            background: '#EFF6FF', border: 'none', cursor: 'pointer', flexShrink: 0,
+          }}>
             <Mic size={16} strokeWidth={2} style={{ color: '#1D4ED8' }} />
           </button>
         </div>
       </div>
 
-      {/* ── Carte — prend tout l'espace sous le header + onglet ── */}
-      <div style={{ flex: 1, position: 'relative', minHeight: 0, paddingTop: 20 }}>
+      {/* ── Carte ───────────────────────────────────────────────── */}
+      <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
 
         {showSidebar && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', zIndex: 1200 }}>
