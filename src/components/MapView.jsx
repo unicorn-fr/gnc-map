@@ -394,16 +394,48 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
       {/* ── Header bleu ─────────────────────────────────────────── */}
       <div style={{
         flexShrink: 0, background: '#172554',
-        display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px',
+        display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
       }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
+        {/* Titre */}
+        <div style={{ flexShrink: 0 }}>
           <p style={{ fontWeight: 800, fontSize: 15, color: 'white', lineHeight: 1.2, margin: 0 }}>GNC Map</p>
-          <p style={{ fontSize: 11, color: '#93C5FD', margin: 0 }}>Groupe Nord Coffrage</p>
+          <p style={{ fontSize: 10, color: '#93C5FD', margin: 0 }}>Nord Coffrage</p>
         </div>
+
+        {/* Barre de recherche — dans le header, toujours visible */}
+        <div style={{
+          flex: 1, display: 'flex', alignItems: 'center', gap: 8,
+          background: 'rgba(255,255,255,0.15)', borderRadius: 12,
+          padding: '8px 10px', cursor: 'pointer',
+        }}>
+          <Search
+            size={16} strokeWidth={2.5}
+            style={{ color: 'rgba(255,255,255,0.7)', flexShrink: 0 }}
+            onClick={() => setShowSearch('text')}
+          />
+          <span
+            onClick={() => setShowSearch('text')}
+            style={{ flex: 1, fontSize: 13, color: 'rgba(255,255,255,0.6)', fontWeight: 500, userSelect: 'none' }}
+          >
+            Rechercher…
+          </span>
+          <button
+            onClick={() => setShowSearch('voice')}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: 30, height: 30, borderRadius: '50%',
+              background: '#1D4ED8', border: 'none', cursor: 'pointer', flexShrink: 0,
+            }}
+          >
+            <Mic size={15} strokeWidth={2} style={{ color: 'white' }} />
+          </button>
+        </div>
+
+        {/* Bouton commercial */}
         <button onClick={onSwitch} style={{
-          display: 'flex', alignItems: 'center', gap: 8,
+          display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
           background: 'rgba(255,255,255,0.12)', borderRadius: 12,
-          padding: '6px 12px', border: 'none', cursor: 'pointer',
+          padding: '6px 10px', border: 'none', cursor: 'pointer',
         }}>
           <div style={{
             width: 24, height: 24, borderRadius: 8, background: commercial.color,
@@ -497,36 +529,9 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           ))}
         </ReactMap>
 
-        {/* ── Barre de recherche flottante — haut (même approche que les FABs) ── */}
+        {/* Légende commerciaux — haut gauche */}
         <div style={{
-          position: 'absolute', top: 10, left: 12, right: 12, zIndex: 500,
-          display: 'flex', alignItems: 'center', gap: 10,
-          background: 'white', borderRadius: 16, padding: '12px 14px',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.35)',
-        }}>
-          <Search size={20} strokeWidth={2.5} style={{ color: '#1D4ED8', flexShrink: 0 }} />
-          <div
-            onClick={() => setShowSearch('text')}
-            style={{ flex: 1, cursor: 'pointer', userSelect: 'none' }}
-          >
-            <span style={{ fontSize: 15, color: '#6B7280', fontWeight: 500 }}>Rechercher un site…</span>
-          </div>
-          <div style={{ width: 1, height: 22, background: '#E5E7EB', flexShrink: 0 }} />
-          <button
-            onClick={() => setShowSearch('voice')}
-            style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              width: 38, height: 38, borderRadius: '50%',
-              background: '#1D4ED8', border: 'none', cursor: 'pointer', flexShrink: 0,
-            }}
-          >
-            <Mic size={18} strokeWidth={2} style={{ color: 'white' }} />
-          </button>
-        </div>
-
-        {/* Légende commerciaux — sous la barre de recherche */}
-        <div style={{
-          position: 'absolute', top: 74, left: 10, zIndex: 500,
+          position: 'absolute', top: 10, left: 10, zIndex: 500,
           background: 'rgba(255,255,255,0.95)', borderRadius: 14,
           padding: '5px 10px', display: 'flex', alignItems: 'center', gap: 10,
           boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
