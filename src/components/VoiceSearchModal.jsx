@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useRef, useMemo } from 'react'
 import SpeechRecognition, { useSpeechRecognition } from 'react-speech-recognition'
 import { X, Mic, MicOff, MapPin } from 'lucide-react'
 import { firstName } from '../lib/utils'
@@ -45,12 +45,31 @@ export default function VoiceSearchModal({ sites, allCommercials, getColor, onSe
     return m
   }, [allCommercials])
 
-  // Démarrer l'écoute dès l'ouverture du modal
+  const silenceTimer = useRef(null)
+  const canAutoStop  = useRef(false)
+
+  // Démarrer l'écoute dès l'ouverture — continuous:true pour rester ouvert
   useEffect(() => {
     resetTranscript()
-    SpeechRecognition.startListening({ language: 'fr-FR', continuous: false })
-    return () => SpeechRecognition.stopListening()
+    canAutoStop.current = false
+    SpeechRecognition.startListening({ language: 'fr-FR', continuous: true })
+    // 2 s minimum avant de pouvoir auto-stopper (temps pour commencer à parler)
+    const minTimer = setTimeout(() => { canAutoStop.current = true }, 2000)
+    return () => {
+      clearTimeout(minTimer)
+      clearTimeout(silenceTimer.current)
+      SpeechRecognition.stopListening()
+    }
   }, [])
+
+  // Auto-stopper 1,5 s après que le transcript arrête de changer
+  useEffect(() => {
+    if (!transcript || !listening) return
+    clearTimeout(silenceTimer.current)
+    silenceTimer.current = setTimeout(() => {
+      if (canAutoStop.current) SpeechRecognition.stopListening()
+    }, 1500)
+  }, [transcript, listening])
 
   const results = useMemo(() => {
     const q = norm(transcript)
@@ -72,7 +91,10 @@ export default function VoiceSearchModal({ sites, allCommercials, getColor, onSe
 
   const handleRetry = () => {
     resetTranscript()
-    SpeechRecognition.startListening({ language: 'fr-FR', continuous: false })
+    canAutoStop.current = false
+    clearTimeout(silenceTimer.current)
+    SpeechRecognition.startListening({ language: 'fr-FR', continuous: true })
+    setTimeout(() => { canAutoStop.current = true }, 2000)
   }
 
   const hasTranscript = transcript.trim().length > 0
