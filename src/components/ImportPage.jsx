@@ -41,20 +41,23 @@ const normalizeStatus = (v = '') => {
 const getInitials = (name) =>
   name.trim().split(/\s+/).map(p => p.charAt(0).toUpperCase()).join('')
 
+const normStr = s => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
+
 const matchCommercial = (value, commercials) => {
   if (!value) return null
-  const v = String(value).toLowerCase().trim()
-  const vUp = String(value).toUpperCase().trim().replace(/\s+/g, '')
-  // Alias Excel (ex : EM → Enzo, CT → Cédric, LJ → Laëtitia)
+  const v    = normStr(value)
+  const vUp  = String(value).toUpperCase().trim().replace(/[\s.]/g, '')
+  // Alias Excel (EM → Enzo, CT → Cédric, LJ → Laëtitia) — comparaison par nom normalisé
   if (COMMERCIAL_ALIASES[vUp]) {
-    const found = commercials.find(c => c.id === COMMERCIAL_ALIASES[vUp])
+    const target = COMMERCIAL_ALIASES[vUp]
+    const found = commercials.find(c => normStr(c.name).startsWith(target))
     if (found) return found
   }
   return (
-    commercials.find(c => c.name.toLowerCase() === v) ??
+    commercials.find(c => normStr(c.name) === v) ??
     commercials.find(c => getInitials(c.name) === vUp) ??
     commercials.find(c => {
-      const parts = c.name.toLowerCase().split(/\s+/)
+      const parts = normStr(c.name).split(/\s+/)
       return parts.some(p => p === v || v.includes(p) || p.includes(v))
     }) ??
     null
