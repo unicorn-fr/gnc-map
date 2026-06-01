@@ -182,20 +182,20 @@ const str = v => String(v??'').trim()
 const normalizeType = v => { const s=str(v).toLowerCase(); if(s==='1') return 'chantier'; if(s==='0') return 'siege'; if(s.includes('siège')||s.includes('siege')||s.includes('social')) return 'siege'; return 'chantier' }
 const normalizeStatus = v => { const s=str(v).toLowerCase(); if(s.includes('client')) return 'client'; if(s.includes('cours')||s.includes('actif')||s==='1') return 'en_cours'; if(s.includes('termin')||s==='0') return 'termine'; return 'prospect' }
 
-function parseFile(path) {
+function parseFile(path, commByAlias, fallbackComm) {
   const wb = XLSX.readFile(path)
   const ws = wb.Sheets[wb.SheetNames[0]]
   const rows = XLSX.utils.sheet_to_json(ws, { defval: '' })
 
   return rows.map(r => {
-    const code = str(r['Code Représentant']).toUpperCase()
-    const comm = COMMERCIALS[code]
-    if (!comm) { console.warn(`  ⚠ Code inconnu: ${code}`) }
+    const code = str(r['Code Représentant']).toUpperCase().trim()
+    const comm = commByAlias[code] ?? fallbackComm
+    if (!commByAlias[code]) console.warn(`  ⚠ Code inconnu: "${code}" → fallback ${fallbackComm?.name}`)
     const name = str(r['Raison sociale']) || str(r['Code client'])
     if (!name) return null
 
     return {
-      commercial_id: comm?.id ?? COMMERCIALS.EM.id,
+      commercial_id: comm.id,
       name,
       company: str(r['Raison sociale']) || null,
       type: normalizeType(r['Chantier']),
@@ -215,7 +215,27 @@ function parseFile(path) {
 async function run() {
   console.log('🚀  Import GNC — 3 fichiers Excel\n')
 
-  // 1. Récupérer les external_ids déjà en base
+  // 1. Récupérer les vrais UUIDs des commerciaux depuis la DB
+  console.log('👥  Récupération des commerciaux...')
+  const { data: dbComms, error: commErr } = await supabase.from('commercials').select('id, name')
+  if (commErr || !dbComms?.length) {
+    console.error('❌  Impossible de récupérer les commerciaux:', commErr?.message)
+    console.error('    Vérifiez que la table commercials est initialisée.')
+    process.exit(1)
+  }
+  // Mapper alias Excel → UUID réel (par nom normalisé)
+  const normName = s => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim()
+  const ALIAS_MAP = { CT: 'cedric', EM: 'enzo', LJ: 'laeticia' }
+  const commByAlias = {}
+  for (const [alias, target] of Object.entries(ALIAS_MAP)) {
+    const found = dbComms.find(c => normName(c.name).startsWith(target))
+    if (found) { commByAlias[alias] = found; console.log(`    ${alias} → ${found.name} (${found.id})`) }
+    else console.warn(`    ⚠ ${alias} (${target}) introuvable en base`)
+  }
+  const fallbackComm = dbComms[0]
+  console.log()
+
+  // 2. Récupérer les external_ids déjà en base
   console.log('📋  Récupération des IDs existants...')
   const { data: existingSites } = await supabase.from('sites').select('id, external_id, deleted')
   const existingMap = new Map((existingSites||[]).map(s=>[s.external_id, s]))
@@ -227,7 +247,8 @@ async function run() {
   for (const filePath of FILES) {
     const fileName = filePath.split('/').pop()
     console.log(`📄  ${fileName}`)
-    const rows = parseFile(filePath)
+    // Passer les vrais UUIDs au parser
+    const rows = parseFile(filePath, commByAlias, fallbackComm)
     console.log(`    ${rows.length} lignes valides`)
 
     // Géocodage
@@ -256,30 +277,36 @@ async function run() {
       }
     })
 
-    // Batch insert par 500
-    const CHUNK = 500
+    // Batch insert par 200
+    const CHUNK = 200
+    let fileInserted=0, fileUpdated=0, fileSkipped=0
     for (let i=0; i<toInsert.length; i+=CHUNK) {
       const chunk = toInsert.slice(i, i+CHUNK)
       const { error } = await supabase.from('sites').insert(chunk)
       if (error) {
         console.error('  ❌  Insert error:', error.message)
-        // Retry individuel
         for (const p of chunk) {
           const { error:e2 } = await supabase.from('sites').insert(p)
-          e2 ? totalSkipped++ : totalInserted++
+          if (e2) { console.error('     row error:', e2.message, '|', p.name); fileSkipped++; totalSkipped++ }
+          else { fileInserted++; totalInserted++ }
         }
       } else {
+        fileInserted += chunk.length
         totalInserted += chunk.length
       }
     }
 
-    // Updates individuels
-    for (const { id, payload } of toUpdate) {
-      const { error } = await supabase.from('sites').update(payload).eq('id', id)
-      error ? totalSkipped++ : totalUpdated++
+    // Updates par batch de 200
+    for (let i=0; i<toUpdate.length; i+=CHUNK) {
+      const chunk = toUpdate.slice(i, i+CHUNK)
+      await Promise.all(chunk.map(async ({ id, payload }) => {
+        const { error } = await supabase.from('sites').update(payload).eq('id', id)
+        if (error) { fileSkipped++; totalSkipped++ }
+        else { fileUpdated++; totalUpdated++ }
+      }))
     }
 
-    console.log(`  ✅  +${toInsert.length} insérés, ${toUpdate.length} mis à jour\n`)
+    console.log(`  ✅  +${fileInserted} insérés, ${fileUpdated} mis à jour${fileSkipped ? `, ${fileSkipped} erreurs` : ''}\n`)
   }
 
   // Log d'import

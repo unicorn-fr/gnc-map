@@ -1,14 +1,11 @@
-// Commerciaux GNC — données statiques, jamais en base pour l'affichage.
-// Les mêmes UUIDs sont dans init_complet.sql pour les foreign keys.
 export const COMMERCIALS = [
-  { id: 'c1000000-0000-0000-0000-000000000001', name: 'Cédric',   color: '#2563EB' },
-  { id: 'c1000000-0000-0000-0000-000000000002', name: 'Enzo',     color: '#16A34A' },
-  { id: 'c1000000-0000-0000-0000-000000000003', name: 'Laëtitia', color: '#D97706' },
+  { id: 'c0347c47-3d46-4a22-aac9-d32c9b4f8745', name: 'Cedric Tissot',   color: '#2563EB' },
+  { id: 'b5ab6e5b-8543-4a1d-8134-3b6740363545', name: 'Enzo Mercier',    color: '#16A34A' },
+  { id: '1b0a9ada-451a-45b1-b687-8a4eac644cac', name: 'Laeticia Janolfo', color: '#D97706' },
 ]
 
-// Aliases utilisés dans les fichiers Excel (initiales → prénom en base)
 export const COMMERCIAL_ALIASES = {
   'CT': 'cedric',
   'EM': 'enzo',
-  'LJ': 'laetitia',
+  'LJ': 'laeticia',
 }
