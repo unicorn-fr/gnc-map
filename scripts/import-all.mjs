@@ -95,19 +95,6 @@ async function govBatch(items, threshold=0.4) {
     return results
   } catch(e) { console.warn('govBatch error:', e.message) }
   return results
-    const res = await fetch('https://api-adresse.data.gouv.fr/search/csv/', {method:'POST',body})
-    if (!res.ok) return results
-    const text = await res.text()
-    const rows = text.trim().split('\n')
-    const hdr = parseCsvRow(rows[0])
-    const latI=hdr.findIndex(h=>h==='result_latitude'), lngI=hdr.findIndex(h=>h==='result_longitude'), scI=hdr.findIndex(h=>h==='result_score')
-    if (latI<0||lngI<0) return results
-    rows.slice(1).forEach((line,bi)=>{
-      const p=parseCsvRow(line), lat=parseFloat(p[latI]), lng=parseFloat(p[lngI]), sc=parseFloat(p[scI]??0)
-      if(!isNaN(lat)&&!isNaN(lng)&&sc>=threshold&&inWork(lat,lng)) results[bi]={lat,lng,sc,src:'gouv'}
-    })
-  } catch(e) { console.warn('govBatch error:', e.message) }
-  return results
 }
 
 async function photon(q) {
