@@ -61,11 +61,40 @@ async function govBatch(items, threshold=0.4) {
   const results = new Array(items.length).fill(null)
   if (!items.length) return results
   try {
-    const lines = ['adresse,code_postal,ville',...items.map(r=>[csvEscape(normAddr(r.addr)),csvEscape(r.cp),csvEscape(r.city)].join(','))]
-    const body = new FormData()
-    body.append('data', new Blob([lines.join('\r\n')],{type:'text/csv'}), 'a.csv')
-    body.append('columns','adresse'); body.append('columns','code_postal'); body.append('columns','ville')
-    body.append('lat',String(CENTER_LAT)); body.append('lon',String(CENTER_LNG))
+    // Inclure la raison sociale comme colonne supplémentaire pour meilleure précision
+    const lines = ['adresse,code_postal,ville,name',...items.map(r=>[csvEscape(normAddr(r.addr)),csvEscape(r.cp),csvEscape(r.city),csvEscape(r.company||'')].join(','))]
+    const csvText = lines.join('\r\n')
+    // En Node.js, on utilise un Buffer pour éviter les problèmes de Blob/FormData
+    const boundary = '----GNCBoundary' + Math.random().toString(36).slice(2)
+    const CRLF = '\r\n'
+    const parts = [
+      `--${boundary}${CRLF}Content-Disposition: form-data; name="data"; filename="a.csv"${CRLF}Content-Type: text/csv${CRLF}${CRLF}${csvText}${CRLF}`,
+      `--${boundary}${CRLF}Content-Disposition: form-data; name="columns"${CRLF}${CRLF}adresse${CRLF}`,
+      `--${boundary}${CRLF}Content-Disposition: form-data; name="columns"${CRLF}${CRLF}code_postal${CRLF}`,
+      `--${boundary}${CRLF}Content-Disposition: form-data; name="columns"${CRLF}${CRLF}ville${CRLF}`,
+      `--${boundary}${CRLF}Content-Disposition: form-data; name="lat"${CRLF}${CRLF}${CENTER_LAT}${CRLF}`,
+      `--${boundary}${CRLF}Content-Disposition: form-data; name="lon"${CRLF}${CRLF}${CENTER_LNG}${CRLF}`,
+      `--${boundary}--${CRLF}`,
+    ]
+    const body = parts.join('')
+    const res = await fetch('https://api-adresse.data.gouv.fr/search/csv/', {
+      method: 'POST',
+      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+      body,
+    })
+    if (!res.ok) { console.warn('govBatch HTTP', res.status); return results }
+    const text = await res.text()
+    const rows = text.trim().split('\n')
+    const hdr = parseCsvRow(rows[0])
+    const latI=hdr.findIndex(h=>h==='result_latitude'), lngI=hdr.findIndex(h=>h==='result_longitude'), scI=hdr.findIndex(h=>h==='result_score')
+    if (latI<0||lngI<0) { console.warn('govBatch: colonnes manquantes dans la réponse'); return results }
+    rows.slice(1).forEach((line,bi)=>{
+      const p=parseCsvRow(line), lat=parseFloat(p[latI]), lng=parseFloat(p[lngI]), sc=parseFloat(p[scI]??0)
+      if(!isNaN(lat)&&!isNaN(lng)&&sc>=threshold&&inWork(lat,lng)) results[bi]={lat,lng,sc,src:'gouv'}
+    })
+    return results
+  } catch(e) { console.warn('govBatch error:', e.message) }
+  return results
     const res = await fetch('https://api-adresse.data.gouv.fr/search/csv/', {method:'POST',body})
     if (!res.ok) return results
     const text = await res.text()
@@ -117,9 +146,15 @@ async function geocodeAll(rows) {
     for (let i=0; i<fail1.length; i+=CONC) {
       const chunk = fail1.slice(i, i+CONC)
       const geos = await Promise.all(chunk.map(async r=>{
+        // 1. adresse + CP + ville
         const q1 = [normAddr(r.addr),r.cp,r.city].filter(Boolean).join(' ')
-        let g = await photon(q1)
-        if (!g && (r.city||r.cp)) g = await photon([r.cp,r.city].filter(Boolean).join(' '))
+        let g = q1.trim() ? await photon(q1) : null
+        // 2. raison sociale + CP + ville
+        if (!g && r.company && (r.city||r.cp))
+          g = await photon([r.company,r.cp,r.city].filter(Boolean).join(' '))
+        // 3. CP + ville seule
+        if (!g && (r.city||r.cp))
+          g = await photon([r.cp,r.city].filter(Boolean).join(' '))
         return g
       }))
       geos.forEach((g,bi)=>{ if(g) results[fail1[i+bi].i]=g })
