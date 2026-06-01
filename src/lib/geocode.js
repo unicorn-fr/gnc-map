@@ -125,10 +125,18 @@ async function photonBatch(items, onDone) {
   for (let i = 0; i < items.length; i += CONCURRENCY) {
     const chunk = items.slice(i, i + CONCURRENCY)
     const geos = await Promise.all(chunk.map(async (r) => {
-      // Essai 1 : adresse complète
+      // Essai 1 : adresse + CP + ville (précision maximale)
       const q1 = [normalizeAddress(r.addr), r.cp, r.city].filter(Boolean).join(' ')
-      let geo = await geocodePhoton(q1)
-      // Essai 2 : ville + CP seulement si adresse a échoué
+      let geo = q1.trim() ? await geocodePhoton(q1) : null
+      // Essai 2 : raison sociale + CP + ville (lookup par nom d'entreprise)
+      if (!geo && r.company && (r.city || r.cp)) {
+        geo = await geocodePhoton([r.company, r.cp, r.city].filter(Boolean).join(' '))
+      }
+      // Essai 3 : adresse seule sans CP/ville si tout a échoué
+      if (!geo && r.addr && !(r.cp || r.city)) {
+        geo = await geocodePhoton(normalizeAddress(r.addr))
+      }
+      // Essai 4 : CP + ville (position dans la commune)
       if (!geo && (r.city || r.cp)) {
         geo = await geocodePhoton([r.cp, r.city].filter(Boolean).join(' '))
       }
@@ -226,11 +234,7 @@ export async function geocodeBatch(rows, cols, onProgress) {
   // ── Phase 2 : Photon pour les lignes encore sans résultat ─────
   const failedAfterGov = toGeo.filter(r => !results[r.i])
   if (failedAfterGov.length > 0) {
-    // Pour Photon, essayer aussi avec le nom de l'entreprise
-    const photonItems = failedAfterGov.map(r => ({
-      ...r,
-      addr: r.addr || r.company,  // fallback sur le nom d'entreprise comme adresse
-    }))
+    const photonItems = failedAfterGov  // company déjà présent, photonBatch l'utilise
 
     const photonResults = await photonBatch(photonItems, (done) => {
       onProgress(geocodedCount + done, total, 'photon')
