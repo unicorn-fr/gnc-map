@@ -16,7 +16,7 @@ import InstallBanner from './InstallBanner'
 import toast from 'react-hot-toast'
 
 const STREET_STYLE = 'https://tiles.openfreemap.org/styles/bright'
-const APP_CACHE_KEY = 'gnc_app_data_v1'
+const APP_CACHE_KEY = 'gnc_app_data_v2'
 const NAV_PREF_KEY = 'gnc_nav_pref'
 
 // Hauteurs fixes des barres (px, hors safe-area)
@@ -200,12 +200,16 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
       supabase.from('commercials').select('*').order('created_at'),
       supabase.from('sites').select('*').order('created_at', { ascending: false }),
     ])
-    if (comms?.length) {
-      setAllCommercials(comms)
+    // Toujours utiliser les couleurs et noms affichables de COMMERCIALS (source de vérité)
+    const merged = comms?.length
+      ? comms.map(c => { const ref = COMMERCIALS.find(k => k.id === c.id); return { ...c, color: ref?.color ?? c.color ?? '#6B7280', name: ref?.name ?? c.name } })
+      : null
+    if (merged) {
+      setAllCommercials(merged)
       setVisibleCommercials(prev => {
-        if (prev.size === 0) return new Set(comms.map(c => c.id))
+        if (prev.size === 0) return new Set(merged.map(c => c.id))
         const next = new Set(prev)
-        comms.forEach(c => { if (!prev.has(c.id)) next.add(c.id) })
+        merged.forEach(c => { if (!prev.has(c.id)) next.add(c.id) })
         return next
       })
     }
@@ -219,8 +223,8 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         })
       })
     }
-    if (comms?.length && sitesData) {
-      try { localStorage.setItem(APP_CACHE_KEY, JSON.stringify({ comms, sites: sitesData })) } catch {}
+    if (merged && sitesData) {
+      try { localStorage.setItem(APP_CACHE_KEY, JSON.stringify({ comms: merged, sites: sitesData })) } catch {}
     }
   }, [])
 
