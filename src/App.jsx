@@ -4,7 +4,6 @@ import { supabase, isMisconfigured } from './lib/supabase'
 import { checkAndClaimSession, heartbeat, endSession, clearLocalToken } from './lib/session'
 import CommercialPicker from './components/CommercialPicker'
 import MapView from './components/MapView'
-import PasswordGate, { validToken } from './components/PasswordGate'
 
 // Écran affiché si les variables d'environnement Supabase sont absentes
 function SetupError() {
@@ -56,7 +55,6 @@ function SetupError() {
 }
 
 export default function App() {
-  const [unlocked, setUnlocked] = useState(() => validToken())
   const [commercial, setCommercial] = useState(null)
   const [loading, setLoading] = useState(true)
   const [installPrompt, setInstallPrompt] = useState(null)
@@ -102,8 +100,6 @@ export default function App() {
   const stopHeartbeat = () => {
     if (heartbeatRef.current) clearInterval(heartbeatRef.current)
   }
-
-  if (!unlocked) return <PasswordGate onUnlock={() => setUnlocked(true)} />
 
   if (isMisconfigured) return <SetupError />
 
