@@ -105,9 +105,16 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center h-full bg-slate-900">
-        <div className="text-4xl mb-3">🗺️</div>
-        <div className="text-white text-xl font-bold">GNC Map</div>
+      <div className="flex flex-col items-center justify-center h-full" style={{ background: '#0f172a' }}>
+        <div className="animate-pulse text-5xl mb-5">🗺️</div>
+        <div className="text-white text-2xl font-extrabold tracking-tight">GNC Map</div>
+        <div className="text-blue-400 text-sm mt-1 font-medium">Groupe Nord Coffrage</div>
+        <div className="flex gap-2 mt-10">
+          {[0, 150, 300].map(delay => (
+            <div key={delay} className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-bounce"
+              style={{ animationDelay: `${delay}ms` }} />
+          ))}
+        </div>
       </div>
     )
   }
