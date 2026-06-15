@@ -184,7 +184,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
 
   useEffect(() => {
     if (!flyTo || !mapRef.current) return
-    mapRef.current.flyTo({ center: [flyTo.lng, flyTo.lat], zoom: 15, duration: 1200 })
+    mapRef.current.jumpTo({ center: [flyTo.lng, flyTo.lat], zoom: 15 })
     setFlyTo(null)
   }, [flyTo])
 
@@ -371,7 +371,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         ? source.getClusterExpansionZoom(cluster_id)
         : new Promise(res => source.getClusterExpansionZoom(cluster_id, (_, z) => res(z)))
       ).then(zoom => {
-        map.flyTo({ center: clusterHits[0].geometry.coordinates, zoom, duration: 500 })
+        map.jumpTo({ center: clusterHits[0].geometry.coordinates, zoom })
       }).catch(() => {})
       return
     }
@@ -619,15 +619,22 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
               )
             })}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <div style={{ width: 9, height: 9, borderRadius: '50%', background: '#374151' }} />
-              <span style={{ fontSize: 10, color: '#6B7280' }}>Chantier</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <div style={{ width: 9, height: 9, borderRadius: '50%', background: 'white', border: '2px solid #374151' }} />
-              <span style={{ fontSize: 10, color: '#6B7280' }}>Siège</span>
-            </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            {[
+              { label: 'Tous', types: ['chantier', 'siege'] },
+              { label: '⚒ Chantiers', types: ['chantier'] },
+              { label: '🏢 Sièges', types: ['siege'] },
+            ].map(({ label, types }) => {
+              const active = types.every(t => visibleTypes.has(t)) && visibleTypes.size === types.length
+              return (
+                <button key={label} onClick={() => setVisibleTypes(new Set(types))} style={{
+                  fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 8, border: 'none',
+                  cursor: 'pointer',
+                  background: active ? '#1D4ED8' : '#F3F4F6',
+                  color: active ? 'white' : '#6B7280',
+                }}>{label}</button>
+              )
+            })}
           </div>
         </div>
 
