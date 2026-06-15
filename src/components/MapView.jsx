@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback, useRef, useMemo, memo } from 'react'
-import ReactMap, { Marker } from 'react-map-gl/maplibre'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import ReactMap, { Marker, Source, Layer } from 'react-map-gl/maplibre'
 import { Menu, Plus, Navigation, X, Search, Layers } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { requestAndSubscribe } from '../lib/push'
@@ -51,20 +51,41 @@ const SATELLITE_STYLE = {
   ],
 }
 
-const SiteMarker = memo(function SiteMarker({ site, color, onSelect }) {
-  return (
-    <Marker
-      longitude={site.lng}
-      latitude={site.lat}
-      anchor="bottom"
-      onClick={(e) => { e.originalEvent.stopPropagation(); onSelect(site) }}
-    >
-      <div className="site-pin-wrap" style={{ background: color }}>
-        <span className="site-pin-emoji">{site.type === 'siege' ? '🏢' : '🏗️'}</span>
-      </div>
-    </Marker>
-  )
-})
+// ── MapLibre cluster layers (GPU-rendered — much faster than DOM markers) ──
+const CLUSTER_LAYER = {
+  id: 'clusters',
+  type: 'circle',
+  filter: ['has', 'point_count'],
+  paint: {
+    'circle-color': '#172554',
+    'circle-radius': ['step', ['get', 'point_count'], 20, 20, 27, 100, 34],
+    'circle-stroke-width': 3,
+    'circle-stroke-color': 'rgba(255,255,255,0.9)',
+    'circle-opacity': 0.93,
+  },
+}
+const CLUSTER_COUNT_LAYER = {
+  id: 'cluster-count',
+  type: 'symbol',
+  filter: ['has', 'point_count'],
+  layout: {
+    'text-field': ['to-string', ['get', 'point_count']],
+    'text-size': 13,
+    'text-allow-overlap': true,
+  },
+  paint: { 'text-color': '#fff' },
+}
+const POINT_LAYER = {
+  id: 'points',
+  type: 'circle',
+  filter: ['!', ['has', 'point_count']],
+  paint: {
+    'circle-color': ['get', 'color'],
+    'circle-radius': 9,
+    'circle-stroke-width': 2.5,
+    'circle-stroke-color': '#fff',
+  },
+}
 
 export default function MapView({ commercial, onSwitch, installPrompt, onInstalled }) {
   const [allCommercials, setAllCommercials] = useState(() => { const c = getCachedAppData()?.comms; return c?.length ? c : COMMERCIALS })
@@ -271,7 +292,6 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
   }, [allCommercials])
 
   const getColor = useCallback((id) => colorMap[id] ?? '#6B7280', [colorMap])
-  const handleSelectSite = useCallback((site) => setSelectedSite(site), [])
 
   // Navigation vocale : ouvre directement si préférence mémorisée, sinon modal
   const handleVoiceNav = useCallback((site) => {
@@ -316,15 +336,52 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
   }
 
   const handleMapClick = useCallback((e) => {
-    if (window.matchMedia('(max-width: 640px)').matches || 'ontouchstart' in window) return
-    setAddPosition({ lat: e.lngLat.lat, lng: e.lngLat.lng })
-    setShowAddModal(true)
+    const map = mapRef.current?.getMap()
+    if (!map) return
+
+    // Click sur un cluster → zoom avant
+    const clusterHits = map.queryRenderedFeatures(e.point, { layers: ['clusters'] })
+    if (clusterHits.length) {
+      const { cluster_id } = clusterHits[0].properties
+      map.getSource('sites').getClusterExpansionZoom(cluster_id, (err, zoom) => {
+        if (!err) map.flyTo({ center: clusterHits[0].geometry.coordinates, zoom, duration: 500 })
+      })
+      return
+    }
+
+    // Click sur un point individuel → sélectionner le site
+    const pointHits = map.queryRenderedFeatures(e.point, { layers: ['points'] })
+    if (pointHits.length) {
+      const siteId = pointHits[0].properties.id
+      const site = sitesRef.current.find(s => s.id === siteId)
+      if (site) {
+        setSelectedSite(site)
+        setFlyTo({ lat: site.lat, lng: site.lng })
+      }
+      return
+    }
+
+    // Clic sur zone vide (desktop seulement) → ajouter un site
+    if (!('ontouchstart' in window) && !window.matchMedia('(max-width: 640px)').matches) {
+      setAddPosition({ lat: e.lngLat.lat, lng: e.lngLat.lng })
+      setShowAddModal(true)
+    }
   }, [])
 
   const filtered = useMemo(() =>
     sites.filter(s => s.lat && s.lng && visibleCommercials.has(s.commercial_id) && visibleTypes.has(s.type)),
     [sites, visibleCommercials, visibleTypes]
   )
+
+  const geojson = useMemo(() => ({
+    type: 'FeatureCollection',
+    features: filtered.map(site => ({
+      type: 'Feature',
+      id: site.id,
+      properties: { id: site.id, color: getColor(site.commercial_id) },
+      geometry: { type: 'Point', coordinates: [site.lng, site.lat] },
+    })),
+  }), [filtered, getColor])
 
   if (showImport) {
     return (
@@ -356,7 +413,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
   const FAB_LBL = { fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#6B7280' }
 
   return (
-    <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
       {/* ── Overlays ────────────────────────────────────────────── */}
       {showSearch && (
@@ -378,7 +435,9 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
       {/* ── Header bleu ─────────────────────────────────────────── */}
       <div style={{
         flexShrink: 0, background: '#172554',
-        display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px',
+        display: 'flex', alignItems: 'center', gap: 12,
+        padding: '10px 16px',
+        paddingTop: 'max(10px, calc(10px + env(safe-area-inset-top)))',
       }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <p style={{ fontWeight: 800, fontSize: 15, color: 'white', lineHeight: 1.2, margin: 0 }}>GNC Map</p>
@@ -458,6 +517,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           style={{ width: '100%', height: '100%' }}
           mapStyle={mapStyle === 'satellite' ? SATELLITE_STYLE : STREET_STYLE}
           onClick={handleMapClick}
+          interactiveLayerIds={['clusters', 'points']}
           attributionControl={false}
           pitchWithRotate={false}
           dragRotate={false}
@@ -466,6 +526,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           renderWorldCopies={false}
           maxTileCacheSize={500}
         >
+          {/* Position utilisateur */}
           {userPosition && (
             <Marker longitude={userPosition[1]} latitude={userPosition[0]} anchor="center">
               <div style={{
@@ -476,9 +537,26 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
               }} />
             </Marker>
           )}
-          {filtered.map(site => (
-            <SiteMarker key={site.id} site={site} color={getColor(site.commercial_id)} onSelect={handleSelectSite} />
-          ))}
+
+          {/* Sites — clusters GPU + points individuels */}
+          <Source id="sites" type="geojson" data={geojson} cluster clusterRadius={45} clusterMaxZoom={13}>
+            <Layer {...CLUSTER_LAYER} />
+            <Layer {...CLUSTER_COUNT_LAYER} />
+            <Layer {...POINT_LAYER} />
+          </Source>
+
+          {/* Anneau de sélection (1 seul DOM node) */}
+          {selectedSite?.lat && (
+            <Marker longitude={selectedSite.lng} latitude={selectedSite.lat} anchor="center">
+              <div style={{
+                width: 26, height: 26, borderRadius: '50%',
+                border: `3px solid ${getColor(selectedSite.commercial_id)}`,
+                background: 'white',
+                boxShadow: '0 2px 12px rgba(0,0,0,0.4)',
+                pointerEvents: 'none',
+              }} />
+            </Marker>
+          )}
         </ReactMap>
 
         {/* ── Barre de recherche flottante ── */}
@@ -512,7 +590,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
 
         {/* ── Boutons flottants — bas droite ──────────────────── */}
         <div style={{
-          position: 'absolute', bottom: 16, right: 12, zIndex: 500,
+          position: 'absolute', bottom: 'max(16px, calc(16px + env(safe-area-inset-bottom)))', right: 12, zIndex: 500,
           display: 'flex', flexDirection: 'column', gap: 8,
         }}>
           <button onClick={handleAddHere} style={{ ...FAB, color: '#1D4ED8' }}>
