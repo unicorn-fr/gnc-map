@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import ReactMap, { Marker, Source, Layer } from 'react-map-gl/maplibre'
+import ReactMap, { Marker } from 'react-map-gl/maplibre'
 import { Menu, Plus, Navigation, X, Search, Layers } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { requestAndSubscribe } from '../lib/push'
@@ -51,54 +51,7 @@ const SATELLITE_STYLE = {
   ],
 }
 
-// ── MapLibre cluster layers (GPU-rendered — much faster than DOM markers) ──
-const CLUSTER_LAYER = {
-  id: 'clusters',
-  type: 'circle',
-  source: 'sites',
-  filter: ['has', 'point_count'],
-  paint: {
-    'circle-color': '#1D4ED8',
-    'circle-radius': ['step', ['get', 'point_count'], 16, 20, 22, 100, 28],
-    'circle-stroke-width': 2.5,
-    'circle-stroke-color': 'rgba(255,255,255,0.9)',
-    'circle-opacity': 0.85,
-  },
-}
-const CLUSTER_COUNT_BG = {
-  id: 'cluster-count-bg',
-  type: 'circle',
-  source: 'sites',
-  filter: ['has', 'point_count'],
-  paint: {
-    'circle-color': 'rgba(255,255,255,0.2)',
-    'circle-radius': ['step', ['get', 'point_count'], 10, 20, 14, 100, 18],
-  },
-}
-const CHANTIER_LAYER = {
-  id: 'points-chantier',
-  type: 'circle',
-  source: 'sites',
-  filter: ['all', ['!', ['has', 'point_count']], ['==', ['get', 'type'], 'chantier']],
-  paint: {
-    'circle-color': ['get', 'color'],
-    'circle-radius': 9,
-    'circle-stroke-width': 2.5,
-    'circle-stroke-color': '#fff',
-  },
-}
-const SIEGE_LAYER = {
-  id: 'points-siege',
-  type: 'circle',
-  source: 'sites',
-  filter: ['all', ['!', ['has', 'point_count']], ['==', ['get', 'type'], 'siege']],
-  paint: {
-    'circle-color': '#ffffff',
-    'circle-radius': 9,
-    'circle-stroke-width': 3.5,
-    'circle-stroke-color': ['get', 'color'],
-  },
-}
+const TYPE_ICON = { chantier: '⚒', siege: '🏢' }
 
 export default function MapView({ commercial, onSwitch, installPrompt, onInstalled }) {
   const [allCommercials, setAllCommercials] = useState(() => { const c = getCachedAppData()?.comms; return c?.length ? c : COMMERCIALS })
@@ -358,56 +311,22 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
   }
 
   const handleMapClick = useCallback((e) => {
-    const map = mapRef.current?.getMap()
-    if (!map) return
-
-    // Click sur un cluster → zoom avant (MapLibre v4 : Promise)
-    const clusterHits = map.queryRenderedFeatures(e.point, { layers: ['clusters'] })
-    if (clusterHits.length) {
-      const { cluster_id } = clusterHits[0].properties
-      const source = map.getSource('sites')
-      ;(source.getClusterExpansionZoom(cluster_id) instanceof Promise
-        ? source.getClusterExpansionZoom(cluster_id)
-        : new Promise(res => source.getClusterExpansionZoom(cluster_id, (_, z) => res(z)))
-      ).then(zoom => {
-        map.jumpTo({ center: clusterHits[0].geometry.coordinates, zoom })
-      }).catch(() => {})
-      return
-    }
-
-    // Click sur un point individuel → sélectionner le site
-    const pointHits = map.queryRenderedFeatures(e.point, { layers: ['points-chantier', 'points-siege'] })
-    if (pointHits.length) {
-      const siteId = pointHits[0].properties.id
-      const site = sitesRef.current.find(s => s.id === siteId)
-      if (site) {
-        setSelectedSite(site)
-        setFlyTo({ lat: site.lat, lng: site.lng })
-      }
-      return
-    }
-
-    // Clic sur zone vide (desktop seulement) → ajouter un site
     if (!('ontouchstart' in window) && !window.matchMedia('(max-width: 640px)').matches) {
       setAddPosition({ lat: e.lngLat.lat, lng: e.lngLat.lng })
       setShowAddModal(true)
     }
   }, [])
 
+  const handleMarkerClick = useCallback((e, site) => {
+    e.originalEvent?.stopPropagation()
+    setSelectedSite(site)
+    setFlyTo({ lat: site.lat, lng: site.lng })
+  }, [])
+
   const filtered = useMemo(() =>
     sites.filter(s => s.lat && s.lng && visibleCommercials.has(s.commercial_id) && visibleTypes.has(s.type)),
     [sites, visibleCommercials, visibleTypes]
   )
-
-  const geojson = useMemo(() => ({
-    type: 'FeatureCollection',
-    features: filtered.map(site => ({
-      type: 'Feature',
-      id: site.id,
-      properties: { id: site.id, color: getColor(site.commercial_id), type: site.type, commercial_id: site.commercial_id },
-      geometry: { type: 'Point', coordinates: [site.lng, site.lat] },
-    })),
-  }), [filtered, getColor])
 
   if (showImport) {
     return (
@@ -543,7 +462,6 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           style={{ width: '100%', height: '100%' }}
           mapStyle={mapStyle === 'satellite' ? SATELLITE_STYLE : STREET_STYLE}
           onClick={handleMapClick}
-          interactiveLayerIds={['clusters', 'points-chantier', 'points-siege']}
           attributionControl={false}
           pitchWithRotate={false}
           dragRotate={false}
@@ -564,26 +482,26 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
             </Marker>
           )}
 
-          {/* Sites — clusters GPU + points individuels */}
-          <Source id="sites" type="geojson" data={geojson} cluster={true} clusterRadius={45} clusterMaxZoom={13}>
-            <Layer {...CLUSTER_LAYER} />
-            <Layer {...CLUSTER_COUNT_BG} />
-            <Layer {...CHANTIER_LAYER} />
-            <Layer {...SIEGE_LAYER} />
-          </Source>
-
-          {/* Anneau de sélection (1 seul DOM node) */}
-          {selectedSite?.lat && (
-            <Marker longitude={selectedSite.lng} latitude={selectedSite.lat} anchor="center">
-              <div style={{
-                width: 26, height: 26, borderRadius: '50%',
-                border: `3px solid ${getColor(selectedSite.commercial_id)}`,
-                background: 'white',
-                boxShadow: '0 2px 12px rgba(0,0,0,0.4)',
-                pointerEvents: 'none',
-              }} />
-            </Marker>
-          )}
+          {/* Sites — marqueurs DOM individuels (couleur par commercial + emoji par type) */}
+          {filtered.map(site => {
+            const color = getColor(site.commercial_id)
+            const isSelected = selectedSite?.id === site.id
+            return (
+              <Marker key={site.id} longitude={site.lng} latitude={site.lat} anchor="center" onClick={(e) => handleMarkerClick(e, site)}>
+                <div style={{
+                  width: isSelected ? 34 : 28, height: isSelected ? 34 : 28,
+                  borderRadius: '50%', background: color,
+                  border: isSelected ? `3px solid white` : `2px solid white`,
+                  boxShadow: isSelected ? `0 0 0 3px ${color}, 0 3px 10px rgba(0,0,0,0.4)` : '0 2px 6px rgba(0,0,0,0.3)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: isSelected ? 15 : 12, cursor: 'pointer',
+                  transition: 'width 0.15s, height 0.15s',
+                }}>
+                  {TYPE_ICON[site.type] ?? '📍'}
+                </div>
+              </Marker>
+            )
+          })}
         </ReactMap>
 
         {/* ── Barre de recherche flottante ── */}
