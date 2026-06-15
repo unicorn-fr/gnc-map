@@ -76,16 +76,28 @@ const CLUSTER_COUNT_BG = {
     'circle-radius': ['step', ['get', 'point_count'], 14, 20, 19, 100, 24],
   },
 }
-const POINT_LAYER = {
-  id: 'points',
+const CHANTIER_LAYER = {
+  id: 'points-chantier',
   type: 'circle',
   source: 'sites',
-  filter: ['!', ['has', 'point_count']],
+  filter: ['all', ['!', ['has', 'point_count']], ['==', ['get', 'type'], 'chantier']],
   paint: {
     'circle-color': ['get', 'color'],
     'circle-radius': 9,
     'circle-stroke-width': 2.5,
     'circle-stroke-color': '#fff',
+  },
+}
+const SIEGE_LAYER = {
+  id: 'points-siege',
+  type: 'circle',
+  source: 'sites',
+  filter: ['all', ['!', ['has', 'point_count']], ['==', ['get', 'type'], 'siege']],
+  paint: {
+    'circle-color': '#ffffff',
+    'circle-radius': 9,
+    'circle-stroke-width': 3.5,
+    'circle-stroke-color': ['get', 'color'],
   },
 }
 
@@ -365,7 +377,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
     }
 
     // Click sur un point individuel → sélectionner le site
-    const pointHits = map.queryRenderedFeatures(e.point, { layers: ['points'] })
+    const pointHits = map.queryRenderedFeatures(e.point, { layers: ['points-chantier', 'points-siege'] })
     if (pointHits.length) {
       const siteId = pointHits[0].properties.id
       const site = sitesRef.current.find(s => s.id === siteId)
@@ -393,7 +405,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
     features: filtered.map(site => ({
       type: 'Feature',
       id: site.id,
-      properties: { id: site.id, color: getColor(site.commercial_id) },
+      properties: { id: site.id, color: getColor(site.commercial_id), type: site.type },
       geometry: { type: 'Point', coordinates: [site.lng, site.lat] },
     })),
   }), [filtered, getColor])
@@ -532,7 +544,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           style={{ width: '100%', height: '100%' }}
           mapStyle={mapStyle === 'satellite' ? SATELLITE_STYLE : STREET_STYLE}
           onClick={handleMapClick}
-          interactiveLayerIds={['clusters', 'points']}
+          interactiveLayerIds={['clusters', 'points-chantier', 'points-siege']}
           attributionControl={false}
           pitchWithRotate={false}
           dragRotate={false}
@@ -557,7 +569,8 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           <Source id="sites" type="geojson" data={geojson} cluster={true} clusterRadius={45} clusterMaxZoom={13}>
             <Layer {...CLUSTER_LAYER} />
             <Layer {...CLUSTER_COUNT_BG} />
-            <Layer {...POINT_LAYER} />
+            <Layer {...CHANTIER_LAYER} />
+            <Layer {...SIEGE_LAYER} />
           </Source>
 
           {/* Anneau de sélection (1 seul DOM node) */}
@@ -592,18 +605,30 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         <div style={{
           position: 'absolute', top: 72, left: 10, zIndex: 500,
           background: 'rgba(255,255,255,0.95)', borderRadius: 14,
-          padding: '5px 10px', display: 'flex', alignItems: 'center', gap: 10,
+          padding: '6px 10px', display: 'flex', flexDirection: 'column', gap: 4,
           boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
         }}>
-          {allCommercials.map(c => {
-            const cnt = sites.filter(s => s.commercial_id === c.id).length
-            return (
-              <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <div style={{ width: 9, height: 9, borderRadius: '50%', background: c.color }} />
-                <span style={{ fontSize: 11, fontWeight: 600, color: '#374151' }}>{firstName(c.name)}<span style={{ fontWeight: 400, color: '#9CA3AF' }}> {cnt}</span></span>
-              </div>
-            )
-          })}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {allCommercials.map(c => {
+              const cnt = sites.filter(s => s.commercial_id === c.id).length
+              return (
+                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <div style={{ width: 9, height: 9, borderRadius: '50%', background: c.color }} />
+                  <span style={{ fontSize: 11, fontWeight: 600, color: '#374151' }}>{firstName(c.name)}<span style={{ fontWeight: 400, color: '#9CA3AF' }}> {cnt}</span></span>
+                </div>
+              )
+            })}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <div style={{ width: 9, height: 9, borderRadius: '50%', background: '#374151' }} />
+              <span style={{ fontSize: 10, color: '#6B7280' }}>Chantier</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <div style={{ width: 9, height: 9, borderRadius: '50%', background: 'white', border: '2px solid #374151' }} />
+              <span style={{ fontSize: 10, color: '#6B7280' }}>Siège</span>
+            </div>
+          </div>
         </div>
 
         {/* ── Boutons flottants — bas droite ──────────────────── */}
