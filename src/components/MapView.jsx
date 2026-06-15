@@ -58,66 +58,46 @@ const CLUSTER_LAYER = {
   source: 'sites',
   filter: ['has', 'point_count'],
   paint: {
-    'circle-color': '#172554',
-    'circle-radius': ['step', ['get', 'point_count'], 20, 20, 27, 100, 34],
-    'circle-stroke-width': 3,
+    'circle-color': '#1D4ED8',
+    'circle-radius': ['step', ['get', 'point_count'], 16, 20, 22, 100, 28],
+    'circle-stroke-width': 2.5,
     'circle-stroke-color': 'rgba(255,255,255,0.9)',
-    'circle-opacity': 0.93,
+    'circle-opacity': 0.85,
   },
 }
-// Chiffre dans le cluster — second cercle blanc opaque + texte HTML canvas (pas de glyphs requis)
 const CLUSTER_COUNT_BG = {
   id: 'cluster-count-bg',
   type: 'circle',
   source: 'sites',
   filter: ['has', 'point_count'],
   paint: {
-    'circle-color': 'rgba(255,255,255,0.25)',
-    'circle-radius': ['step', ['get', 'point_count'], 14, 20, 19, 100, 24],
+    'circle-color': 'rgba(255,255,255,0.2)',
+    'circle-radius': ['step', ['get', 'point_count'], 10, 20, 14, 100, 18],
   },
 }
-const POINT_LAYER = {
-  id: 'points',
-  type: 'symbol',
+const CHANTIER_LAYER = {
+  id: 'points-chantier',
+  type: 'circle',
   source: 'sites',
-  filter: ['!', ['has', 'point_count']],
-  layout: {
-    'icon-image': ['concat', 'pin-', ['get', 'commercial_id'], '-', ['get', 'type']],
-    'icon-size': 1,
-    'icon-allow-overlap': true,
-    'icon-anchor': 'center',
+  filter: ['all', ['!', ['has', 'point_count']], ['==', ['get', 'type'], 'chantier']],
+  paint: {
+    'circle-color': ['get', 'color'],
+    'circle-radius': 9,
+    'circle-stroke-width': 2.5,
+    'circle-stroke-color': '#fff',
   },
 }
-
-// Génère les icônes canvas (cercle coloré + emoji) et les injecte dans la carte
-function addMapIcons(map) {
-  const SIZE = 40, DPR = 2, PX = SIZE * DPR
-  const EMOJIS = { chantier: '⚒', siege: '🏢' }
-  COMMERCIALS.forEach(c => {
-    ;['chantier', 'siege'].forEach(type => {
-      const key = `pin-${c.id}-${type}`
-      if (map.hasImage(key)) return
-      const canvas = document.createElement('canvas')
-      canvas.width = PX; canvas.height = PX
-      const ctx = canvas.getContext('2d')
-      const r = PX / 2 - 3 * DPR
-      const isChantier = type === 'chantier'
-      // ombre portée
-      ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = 4 * DPR; ctx.shadowOffsetY = 2 * DPR
-      // cercle
-      ctx.beginPath(); ctx.arc(PX / 2, PX / 2, r, 0, Math.PI * 2)
-      ctx.fillStyle = isChantier ? c.color : '#fff'; ctx.fill()
-      ctx.shadowColor = 'transparent'
-      ctx.strokeStyle = isChantier ? '#fff' : c.color
-      ctx.lineWidth = 3 * DPR; ctx.stroke()
-      // emoji
-      ctx.font = `${Math.round(r * 1.0)}px sans-serif`
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-      ctx.fillStyle = isChantier ? '#fff' : c.color
-      ctx.fillText(EMOJIS[type], PX / 2, PX / 2 + DPR)
-      map.addImage(key, ctx.getImageData(0, 0, PX, PX), { pixelRatio: DPR })
-    })
-  })
+const SIEGE_LAYER = {
+  id: 'points-siege',
+  type: 'circle',
+  source: 'sites',
+  filter: ['all', ['!', ['has', 'point_count']], ['==', ['get', 'type'], 'siege']],
+  paint: {
+    'circle-color': '#ffffff',
+    'circle-radius': 9,
+    'circle-stroke-width': 3.5,
+    'circle-stroke-color': ['get', 'color'],
+  },
 }
 
 export default function MapView({ commercial, onSwitch, installPrompt, onInstalled }) {
@@ -143,11 +123,6 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
   const [voiceNavSite, setVoiceNavSite] = useState(null)
 
   const mapRef = useRef(null)
-  const onMapLoad = useCallback((evt) => {
-    const map = evt.target
-    addMapIcons(map)
-    map.on('styledata', () => addMapIcons(map))
-  }, [])
   const watchIdRef = useRef(null)
   const pendingSiteIdRef = useRef(null)
   const selectedSiteRef = useRef(null)
@@ -401,7 +376,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
     }
 
     // Click sur un point individuel → sélectionner le site
-    const pointHits = map.queryRenderedFeatures(e.point, { layers: ['points'] })
+    const pointHits = map.queryRenderedFeatures(e.point, { layers: ['points-chantier', 'points-siege'] })
     if (pointHits.length) {
       const siteId = pointHits[0].properties.id
       const site = sitesRef.current.find(s => s.id === siteId)
@@ -567,9 +542,8 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           initialViewState={getSavedView() ?? { longitude: 5.9, latitude: 46.5, zoom: 9 }}
           style={{ width: '100%', height: '100%' }}
           mapStyle={mapStyle === 'satellite' ? SATELLITE_STYLE : STREET_STYLE}
-          onLoad={onMapLoad}
           onClick={handleMapClick}
-          interactiveLayerIds={['clusters', 'points']}
+          interactiveLayerIds={['clusters', 'points-chantier', 'points-siege']}
           attributionControl={false}
           pitchWithRotate={false}
           dragRotate={false}
@@ -594,7 +568,8 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           <Source id="sites" type="geojson" data={geojson} cluster={true} clusterRadius={45} clusterMaxZoom={13}>
             <Layer {...CLUSTER_LAYER} />
             <Layer {...CLUSTER_COUNT_BG} />
-            <Layer {...POINT_LAYER} />
+            <Layer {...CHANTIER_LAYER} />
+            <Layer {...SIEGE_LAYER} />
           </Source>
 
           {/* Anneau de sélection (1 seul DOM node) */}
@@ -660,8 +635,15 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
               )
             })}
           </div>
-          <div style={{ display: 'flex', gap: 8, fontSize: 10, color: '#9CA3AF' }}>
-            <span>⚒ chantier</span><span>🏢 siège</span>
+          <div style={{ display: 'flex', gap: 8, fontSize: 10, color: '#9CA3AF', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#374151' }} />
+              <span>chantier</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'white', border: '2px solid #374151' }} />
+              <span>siège</span>
+            </div>
           </div>
         </div>
 
