@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 
-const PREF_KEY = 'gnc_nav_pref'
+const PREF_KEY = 'atlas_nav_pref'
 
 export default function VoiceNavModal({ site, onClose }) {
   const [phase, setPhase] = useState('idle') // idle | speaking | listening

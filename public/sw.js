@@ -1,4 +1,4 @@
-const CACHE = 'gnc-map-v21'
+const CACHE = 'atlas-v1'
 const TILE_CACHE = 'gnc-tiles-v11'
 const STYLE_CACHE = 'gnc-styles-v1'
 
@@ -260,10 +260,10 @@ self.addEventListener('fetch', e => {
 self.addEventListener('push', e => {
   if (!e.data) return
   let data = {}
-  try { data = e.data.json() } catch { data = { title: 'GNC Map', body: e.data.text() } }
+  try { data = e.data.json() } catch { data = { title: 'Atlas', body: e.data.text() } }
   const tag = `gnc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
   e.waitUntil(
-    self.registration.showNotification(data.title ?? 'GNC Map', {
+    self.registration.showNotification(data.title ?? 'Atlas', {
       body: data.body ?? '',
       icon: '/icon-192.png',
       badge: '/icon-192.png',

@@ -44,7 +44,7 @@ export default function InstallBanner({ installPrompt, onInstalled }) {
           <p className="text-white font-semibold text-sm">Installer l'application</p>
           <p className="text-white/50 text-xs mt-0.5">
             {isIOS()
-              ? 'Ajoutez GNC Map à votre écran d\'accueil'
+              ? 'Ajoutez Atlas à votre écran d\'accueil'
               : 'Accès direct depuis votre téléphone'}
           </p>
         </div>
@@ -92,7 +92,7 @@ export default function InstallBanner({ installPrompt, onInstalled }) {
                 <span className="bg-blue-100 text-blue-700 font-bold w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-sm">3</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-800">Confirmez avec « Ajouter »</p>
-                  <p className="text-xs text-gray-500 mt-0.5">GNC Map apparaîtra comme une vraie app</p>
+                  <p className="text-xs text-gray-500 mt-0.5">Atlas apparaîtra comme une vraie app</p>
                 </div>
               </li>
             </ol>
