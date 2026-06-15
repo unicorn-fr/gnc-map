@@ -51,7 +51,7 @@ const SATELLITE_STYLE = {
   ],
 }
 
-const TYPE_ICON = { chantier: '⚒', siege: '🏢' }
+const TYPE_ICON = { chantier: '🏗️', siege: '🏢' }
 
 export default function MapView({ commercial, onSwitch, installPrompt, onInstalled }) {
   const [allCommercials, setAllCommercials] = useState(() => { const c = getCachedAppData()?.comms; return c?.length ? c : COMMERCIALS })
