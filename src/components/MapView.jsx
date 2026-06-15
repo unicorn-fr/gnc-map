@@ -16,8 +16,8 @@ import InstallBanner from './InstallBanner'
 import toast from 'react-hot-toast'
 
 const STREET_STYLE = 'https://tiles.openfreemap.org/styles/bright'
-const APP_CACHE_KEY = 'gnc_app_data_v2'
-const NAV_PREF_KEY = 'gnc_nav_pref'
+const APP_CACHE_KEY = 'atlas_app_data_v1'
+const NAV_PREF_KEY = 'atlas_nav_pref'
 
 // Hauteurs fixes des barres (px, hors safe-area)
 const TOP_H = 56   // barre du haut
@@ -29,7 +29,7 @@ function getCachedAppData() {
 
 function getSavedView() {
   try {
-    const v = JSON.parse(localStorage.getItem('gnc_map_view') || 'null')
+    const v = JSON.parse(localStorage.getItem('atlas_map_view') || 'null')
     if (v?.longitude && v?.latitude) return v
   } catch {}
   return null
@@ -147,7 +147,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
     watchIdRef.current = navigator.geolocation.watchPosition(
       ({ coords: { latitude: lat, longitude: lng } }) => {
         setUserPosition([lat, lng])
-        localStorage.setItem('gnc_map_view', JSON.stringify({ latitude: lat, longitude: lng, zoom: 14 }))
+        localStorage.setItem('atlas_map_view', JSON.stringify({ latitude: lat, longitude: lng, zoom: 14 }))
         if (firstFix) {
           firstFix = false
           if (!hasSavedView) setFlyTo({ lat, lng })
@@ -385,8 +385,8 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         paddingTop: 'max(10px, calc(10px + env(safe-area-inset-top)))',
       }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <p style={{ fontWeight: 800, fontSize: 15, color: 'white', lineHeight: 1.2, margin: 0 }}>GNC Map</p>
-          <p style={{ fontSize: 11, color: '#93C5FD', margin: 0 }}>Groupe Nord Coffrage</p>
+          <p style={{ fontWeight: 800, fontSize: 15, color: 'white', lineHeight: 1.2, margin: 0 }}>Atlas</p>
+          <p style={{ fontSize: 11, color: '#93C5FD', margin: 0 }}>Espace professionnel</p>
         </div>
         <button onClick={onSwitch} style={{
           display: 'flex', alignItems: 'center', gap: 8,
