@@ -517,53 +517,6 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           <span style={{ flex: 1, fontSize: 14, color: '#9CA3AF', fontWeight: 500, userSelect: 'none' }}>Rechercher un site…</span>
         </div>
 
-        {/* Légende commerciaux — sous la barre de recherche */}
-        <div style={{
-          position: 'absolute', top: 72, left: 10, zIndex: 500,
-          background: 'rgba(255,255,255,0.95)', borderRadius: 14,
-          padding: '6px 10px', display: 'flex', flexDirection: 'column', gap: 4,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {allCommercials.map(c => {
-              const cnt = sites.filter(s => s.commercial_id === c.id).length
-              return (
-                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <div style={{ width: 9, height: 9, borderRadius: '50%', background: c.color }} />
-                  <span style={{ fontSize: 11, fontWeight: 600, color: '#374151' }}>{firstName(c.name)}<span style={{ fontWeight: 400, color: '#9CA3AF' }}> {cnt}</span></span>
-                </div>
-              )
-            })}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            {[
-              { label: 'Tous', types: ['chantier', 'siege'] },
-              { label: '⚒ Chantiers', types: ['chantier'] },
-              { label: '🏢 Sièges', types: ['siege'] },
-            ].map(({ label, types }) => {
-              const active = visibleTypes.size === types.length && types.every(t => visibleTypes.has(t))
-              return (
-                <button key={label} onClick={() => setVisibleTypes(new Set(types))} style={{
-                  fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 8, border: 'none',
-                  cursor: 'pointer',
-                  background: active ? '#1D4ED8' : '#F3F4F6',
-                  color: active ? 'white' : '#6B7280',
-                }}>{label}</button>
-              )
-            })}
-          </div>
-          <div style={{ display: 'flex', gap: 8, fontSize: 10, color: '#9CA3AF', alignItems: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#374151' }} />
-              <span>chantier</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'white', border: '2px solid #374151' }} />
-              <span>siège</span>
-            </div>
-          </div>
-        </div>
-
         {/* ── Boutons flottants — bas droite ──────────────────── */}
         <div style={{
           position: 'absolute', bottom: 'max(16px, calc(16px + env(safe-area-inset-bottom)))', right: 12, zIndex: 500,

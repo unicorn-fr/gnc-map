@@ -6,16 +6,6 @@ const TYPE_OPTS = [
   { value: 'siege',    emoji: '🏢', label: 'Sièges sociaux' },
 ]
 
-const relTime = (iso) => {
-  if (!iso) return ''
-  const diff = Date.now() - new Date(iso)
-  if (diff < 60_000)       return 'à l\'instant'
-  if (diff < 3_600_000)    return `il y a ${Math.floor(diff / 60_000)} min`
-  if (diff < 86_400_000)   return `il y a ${Math.floor(diff / 3_600_000)} h`
-  if (diff < 7 * 86_400_000) return `il y a ${Math.floor(diff / 86_400_000)} j`
-  return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' })
-}
-
 export default function Sidebar({
   commercials, sites, currentCommercialId,
   visibleCommercials, setVisibleCommercials,
@@ -38,19 +28,12 @@ export default function Sidebar({
     })
   }
 
-  // Activité récente des AUTRES commerciaux (les 10 dernières)
-  const recentActivity = [...sites]
-    .filter(s => !s.import_log_id)
-    .sort((a, b) => new Date(b.updated_at ?? b.created_at) - new Date(a.updated_at ?? a.created_at))
-    .slice(0, 15)
-
   return (
     <div className="w-80 bg-white h-full shadow-2xl flex flex-col overflow-hidden">
-      {/* Header */}
       <div className="bg-blue-950 text-white px-5 py-4 flex items-center justify-between flex-shrink-0">
         <div>
           <p className="font-bold text-base">Menu</p>
-          <p className="text-blue-300 text-xs">Filtres & Activité</p>
+          <p className="text-blue-300 text-xs">Filtres</p>
         </div>
         <button onClick={onClose} className="p-2 hover:bg-blue-800 rounded-xl transition-colors">
           <X size={20} />
@@ -58,7 +41,6 @@ export default function Sidebar({
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {/* Action buttons */}
         <div className="p-4 border-b space-y-2">
           <button
             onClick={onOpenImport}
@@ -82,49 +64,6 @@ export default function Sidebar({
           </button>
         </div>
 
-        {/* Activité récente des autres */}
-        {recentActivity.length > 0 && (
-          <div className="p-4 border-b">
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">
-              Activité récente
-            </p>
-            {recentActivity.map(site => {
-              const comm = commercials.find(c => c.id === site.commercial_id)
-              const color = getColor(site.commercial_id)
-              const ts = site.updated_at ?? site.created_at
-              const isMe = site.commercial_id === currentCommercialId
-              return (
-                <button
-                  key={site.id}
-                  onClick={() => onSelectSite(site)}
-                  className="w-full flex items-start gap-3 p-2.5 hover:bg-gray-50 rounded-xl mb-1 text-left transition-colors group"
-                >
-                  <div
-                    className="w-8 h-8 rounded-xl flex-shrink-0 flex items-center justify-center text-white font-bold text-xs mt-0.5"
-                    style={{ background: color }}
-                  >
-                    {firstName(comm?.name ?? '?').charAt(0).toUpperCase()}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-gray-800 truncate group-hover:text-blue-700">
-                      {site.name}
-                    </p>
-                    <p className="text-xs text-gray-400 truncate">
-                      {isMe ? 'Moi' : firstName(comm?.name ?? '')}
-                      {site.city ? ` · ${site.city}` : ''}
-                      <span className="ml-1 text-gray-300">· {relTime(ts)}</span>
-                    </p>
-                  </div>
-                  <span className="text-[10px] text-gray-300 mt-1 flex-shrink-0">
-                    {site.type === 'siege' ? '🏢' : '🏗️'}
-                  </span>
-                </button>
-              )
-            })}
-          </div>
-        )}
-
-        {/* Commercials filter */}
         <div className="p-4 border-b">
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Commerciaux</p>
           {commercials.map((c) => {
@@ -163,7 +102,6 @@ export default function Sidebar({
           })}
         </div>
 
-        {/* Type filter */}
         <div className="p-4">
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Type de site</p>
           {TYPE_OPTS.map(opt => {
