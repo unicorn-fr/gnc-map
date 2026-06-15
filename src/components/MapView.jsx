@@ -55,6 +55,7 @@ const SATELLITE_STYLE = {
 const CLUSTER_LAYER = {
   id: 'clusters',
   type: 'circle',
+  source: 'sites',
   filter: ['has', 'point_count'],
   paint: {
     'circle-color': '#172554',
@@ -64,20 +65,21 @@ const CLUSTER_LAYER = {
     'circle-opacity': 0.93,
   },
 }
-const CLUSTER_COUNT_LAYER = {
-  id: 'cluster-count',
-  type: 'symbol',
+// Chiffre dans le cluster — second cercle blanc opaque + texte HTML canvas (pas de glyphs requis)
+const CLUSTER_COUNT_BG = {
+  id: 'cluster-count-bg',
+  type: 'circle',
+  source: 'sites',
   filter: ['has', 'point_count'],
-  layout: {
-    'text-field': ['to-string', ['get', 'point_count']],
-    'text-size': 13,
-    'text-allow-overlap': true,
+  paint: {
+    'circle-color': 'rgba(255,255,255,0.25)',
+    'circle-radius': ['step', ['get', 'point_count'], 14, 20, 19, 100, 24],
   },
-  paint: { 'text-color': '#fff' },
 }
 const POINT_LAYER = {
   id: 'points',
   type: 'circle',
+  source: 'sites',
   filter: ['!', ['has', 'point_count']],
   paint: {
     'circle-color': ['get', 'color'],
@@ -343,13 +345,17 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
     const map = mapRef.current?.getMap()
     if (!map) return
 
-    // Click sur un cluster → zoom avant
+    // Click sur un cluster → zoom avant (MapLibre v4 : Promise)
     const clusterHits = map.queryRenderedFeatures(e.point, { layers: ['clusters'] })
     if (clusterHits.length) {
       const { cluster_id } = clusterHits[0].properties
-      map.getSource('sites').getClusterExpansionZoom(cluster_id, (err, zoom) => {
-        if (!err) map.flyTo({ center: clusterHits[0].geometry.coordinates, zoom, duration: 500 })
-      })
+      const source = map.getSource('sites')
+      ;(source.getClusterExpansionZoom(cluster_id) instanceof Promise
+        ? source.getClusterExpansionZoom(cluster_id)
+        : new Promise(res => source.getClusterExpansionZoom(cluster_id, (_, z) => res(z)))
+      ).then(zoom => {
+        map.flyTo({ center: clusterHits[0].geometry.coordinates, zoom, duration: 500 })
+      }).catch(() => {})
       return
     }
 
@@ -543,9 +549,9 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           )}
 
           {/* Sites — clusters GPU + points individuels */}
-          <Source id="sites" type="geojson" data={geojson} cluster clusterRadius={45} clusterMaxZoom={13}>
+          <Source id="sites" type="geojson" data={geojson} cluster={true} clusterRadius={45} clusterMaxZoom={13}>
             <Layer {...CLUSTER_LAYER} />
-            <Layer {...CLUSTER_COUNT_LAYER} />
+            <Layer {...CLUSTER_COUNT_BG} />
             <Layer {...POINT_LAYER} />
           </Source>
 
