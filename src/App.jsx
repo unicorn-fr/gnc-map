@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Toaster } from 'react-hot-toast'
 import { supabase, isMisconfigured } from './lib/supabase'
-import { COMMERCIALS } from './lib/commercials'
 import LoginPage from './components/LoginPage'
 import MapView from './components/MapView'
 
 const LS_COMMERCIAL = 'atlas_commercial'
+const LS_UNLOCKED = 'atlas_unlocked'
 
 function SetupError() {
   return (
@@ -16,23 +16,20 @@ function SetupError() {
         <p className="text-gray-500 text-sm text-center mb-6">
           Les variables d'environnement Supabase ne sont pas configurées.
         </p>
-        <div className="bg-slate-900 rounded-2xl p-4 text-sm font-mono text-green-400 space-y-1 mb-6">
+        <div className="bg-slate-900 rounded-2xl p-4 text-sm font-mono text-green-400 space-y-1">
           <p className="text-slate-400 text-xs mb-2"># Variables à ajouter dans Vercel</p>
           <p>VITE_SUPABASE_URL</p>
           <p>VITE_SUPABASE_ANON_KEY</p>
+          <p>VITE_ACCESS_CODE</p>
         </div>
       </div>
     </div>
   )
 }
 
-function mergeWithLocal(c) {
-  const ref = COMMERCIALS.find(k => k.id === c.id)
-  return { ...c, color: ref?.color ?? c.color ?? '#6B7280', name: ref?.name ?? c.name }
-}
-
 export default function App() {
   const [commercial, setCommercial] = useState(null)
+  const [unlocked, setUnlocked] = useState(false)
   const [loading, setLoading] = useState(true)
   const [installPrompt, setInstallPrompt] = useState(null)
 
@@ -42,55 +39,35 @@ export default function App() {
 
     if (isMisconfigured) { setLoading(false); return }
 
-    // Vérifier la session Supabase existante
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (session) {
-        // Essayer le cache local d'abord pour afficher immédiatement
-        try {
-          const cached = JSON.parse(localStorage.getItem(LS_COMMERCIAL) || 'null')
-          if (cached) { setCommercial(cached); setLoading(false) }
-        } catch {}
-        // Rafraîchir depuis la DB en arrière-plan
-        await fetchCommercial(session.user.id)
-      }
-      setLoading(false)
-    })
-
-    // Écouter les changements d'auth (login / logout)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session) {
-        setLoading(true)
-        await fetchCommercial(session.user.id)
-        setLoading(false)
-      } else if (event === 'SIGNED_OUT') {
-        localStorage.removeItem(LS_COMMERCIAL)
-        setCommercial(null)
-      }
-    })
-
-    return () => {
-      subscription.unsubscribe()
-      window.removeEventListener('beforeinstallprompt', handler)
+    // Vérifier si déjà déverrouillé et si un commercial est mémorisé
+    const isUnlocked = localStorage.getItem(LS_UNLOCKED) === '1'
+    if (isUnlocked) {
+      setUnlocked(true)
+      try {
+        const saved = JSON.parse(localStorage.getItem(LS_COMMERCIAL) || 'null')
+        if (saved) setCommercial(saved)
+      } catch {}
     }
+    setLoading(false)
+
+    return () => window.removeEventListener('beforeinstallprompt', handler)
   }, [])
 
-  const fetchCommercial = async (userId) => {
-    const { data } = await supabase
-      .from('commercials')
-      .select('*')
-      .eq('user_id', userId)
-      .single()
-    if (data) {
-      const c = mergeWithLocal(data)
-      setCommercial(c)
-      try { localStorage.setItem(LS_COMMERCIAL, JSON.stringify(c)) } catch {}
-    }
+  const handleSelect = (c) => {
+    localStorage.setItem(LS_COMMERCIAL, JSON.stringify(c))
+    setCommercial(c)
   }
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut()
+  const handleCodeValid = () => {
+    localStorage.setItem(LS_UNLOCKED, '1')
+    setUnlocked(true)
+  }
+
+  const handleLogout = () => {
     localStorage.removeItem(LS_COMMERCIAL)
+    localStorage.removeItem(LS_UNLOCKED)
     setCommercial(null)
+    setUnlocked(false)
   }
 
   if (isMisconfigured) return <SetupError />
@@ -116,7 +93,13 @@ export default function App() {
       <Toaster position="top-center" toastOptions={{ duration: 3000, style: { borderRadius: '12px', fontSize: '14px' } }} />
       {commercial
         ? <MapView commercial={commercial} onSwitch={handleLogout} installPrompt={installPrompt} onInstalled={() => setInstallPrompt(null)} />
-        : <LoginPage installPrompt={installPrompt} onInstalled={() => setInstallPrompt(null)} />
+        : <LoginPage
+            onSelect={(c) => { handleCodeValid(); handleSelect(c) }}
+            onCodeValid={handleCodeValid}
+            installPrompt={installPrompt}
+            onInstalled={() => setInstallPrompt(null)}
+            startAtPick={unlocked}
+          />
       }
     </>
   )
