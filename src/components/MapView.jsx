@@ -198,10 +198,12 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
   }
 
   const loadAll = useCallback(async () => {
-    const [{ data: comms }, { data: sitesData }] = await Promise.all([
+    const [{ data: comms, error: commsErr }, { data: sitesData, error: sitesErr }] = await Promise.all([
       supabase.from('commercials').select('*').order('created_at'),
       supabase.from('sites').select('*').order('created_at', { ascending: false }),
     ])
+    if (commsErr) toast.error('Erreur DB commerciaux : ' + commsErr.message, { id: 'db-comms-err', duration: 8000 })
+    if (sitesErr) toast.error('Erreur DB sites : ' + sitesErr.message, { id: 'db-sites-err', duration: 8000 })
     // Toujours utiliser les couleurs et noms affichables de COMMERCIALS (source de vérité)
     const merged = comms?.length
       ? comms.map(c => { const ref = COMMERCIALS.find(k => k.id === c.id); return { ...c, color: ref?.color ?? c.color ?? '#6B7280', name: ref?.name ?? c.name } })
@@ -224,6 +226,9 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           return (p && p.updated_at === s.updated_at) ? p : s
         })
       })
+      if (!sitesData.length && !sitesErr) {
+        toast('⚠️ Aucun site en base — vérifiez les droits Supabase', { id: 'db-empty', duration: 10000 })
+      }
     }
     if (merged && sitesData) {
       try { localStorage.setItem(APP_CACHE_KEY, JSON.stringify({ comms: merged, sites: sitesData })) } catch {}
@@ -590,12 +595,15 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
           padding: '5px 10px', display: 'flex', alignItems: 'center', gap: 10,
           boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
         }}>
-          {allCommercials.map(c => (
-            <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <div style={{ width: 9, height: 9, borderRadius: '50%', background: c.color }} />
-              <span style={{ fontSize: 11, fontWeight: 600, color: '#374151' }}>{firstName(c.name)}</span>
-            </div>
-          ))}
+          {allCommercials.map(c => {
+            const cnt = sites.filter(s => s.commercial_id === c.id).length
+            return (
+              <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <div style={{ width: 9, height: 9, borderRadius: '50%', background: c.color }} />
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#374151' }}>{firstName(c.name)}<span style={{ fontWeight: 400, color: '#9CA3AF' }}> {cnt}</span></span>
+              </div>
+            )
+          })}
         </div>
 
         {/* ── Boutons flottants — bas droite ──────────────────── */}
