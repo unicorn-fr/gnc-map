@@ -489,13 +489,12 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
             return (
               <Marker key={site.id} longitude={site.lng} latitude={site.lat} anchor="center" onClick={(e) => handleMarkerClick(e, site)}>
                 <div style={{
-                  width: isSelected ? 34 : 28, height: isSelected ? 34 : 28,
-                  borderRadius: '50%', background: color,
-                  border: isSelected ? `3px solid white` : `2px solid white`,
-                  boxShadow: isSelected ? `0 0 0 3px ${color}, 0 3px 10px rgba(0,0,0,0.4)` : '0 2px 6px rgba(0,0,0,0.3)',
+                  width: isSelected ? 44 : 36, height: isSelected ? 44 : 36,
+                  borderRadius: '50%', background: 'white',
+                  border: `4px solid ${color}`,
+                  boxShadow: isSelected ? `0 0 0 3px ${color}66, 0 4px 12px rgba(0,0,0,0.35)` : '0 2px 8px rgba(0,0,0,0.25)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: isSelected ? 15 : 12, cursor: 'pointer',
-                  transition: 'width 0.15s, height 0.15s',
+                  fontSize: isSelected ? 20 : 16, cursor: 'pointer',
                 }}>
                   {TYPE_ICON[site.type] ?? '📍'}
                 </div>
