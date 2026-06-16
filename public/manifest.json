@@ -1,6 +1,6 @@
 {
-  "name": "Atlas",
-  "short_name": "Atlas",
+  "name": "Carte de prospection",
+  "short_name": "Prospection",
   "description": "Espace professionnel",
   "start_url": "/",
   "display": "standalone",

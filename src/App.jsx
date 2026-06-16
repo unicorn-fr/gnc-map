@@ -76,7 +76,7 @@ export default function App() {
     return (
       <div className="flex flex-col items-center justify-center h-full" style={{ background: '#0f172a' }}>
         <div className="animate-pulse text-5xl mb-5">🗺️</div>
-        <div className="text-white text-2xl font-extrabold tracking-tight">Atlas</div>
+        <div className="text-white text-2xl font-extrabold tracking-tight">Carte de prospection</div>
         <div className="text-blue-400 text-sm mt-1 font-medium">Espace professionnel</div>
         <div className="flex gap-2 mt-10">
           {[0, 150, 300].map(delay => (

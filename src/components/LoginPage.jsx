@@ -29,7 +29,7 @@ export default function LoginPage({ onSelect, installPrompt, onInstalled, startA
           <div className="inline-flex items-center justify-center w-20 h-20 bg-white/10 backdrop-blur rounded-3xl mb-5 shadow-xl">
             <MapPin size={40} className="text-white" />
           </div>
-          <h1 className="text-4xl font-extrabold text-white tracking-tight">Atlas</h1>
+          <h1 className="text-4xl font-extrabold text-white tracking-tight">Carte de prospection</h1>
           <p className="text-blue-300 mt-2">Espace professionnel</p>
         </div>
 
@@ -70,7 +70,7 @@ export default function LoginPage({ onSelect, installPrompt, onInstalled, startA
         <div className="inline-flex items-center justify-center w-20 h-20 bg-white/10 backdrop-blur rounded-3xl mb-5 shadow-xl">
           <MapPin size={40} className="text-white" />
         </div>
-        <h1 className="text-4xl font-extrabold text-white tracking-tight">Atlas</h1>
+        <h1 className="text-4xl font-extrabold text-white tracking-tight">Carte de prospection</h1>
         <p className="text-blue-300 mt-2">Espace professionnel</p>
       </div>
 
