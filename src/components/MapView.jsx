@@ -385,7 +385,7 @@ export default function MapView({ commercial, onSwitch, installPrompt, onInstall
         paddingTop: 'max(10px, calc(10px + env(safe-area-inset-top)))',
       }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <p style={{ fontWeight: 800, fontSize: 15, color: 'white', lineHeight: 1.2, margin: 0 }}>Atlas</p>
+          <p style={{ fontWeight: 800, fontSize: 15, color: 'white', lineHeight: 1.2, margin: 0 }}>Carte de prospection</p>
           <p style={{ fontSize: 11, color: '#93C5FD', margin: 0 }}>Espace professionnel</p>
         </div>
         <button onClick={onSwitch} style={{
