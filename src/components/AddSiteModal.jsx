@@ -1,27 +1,10 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { X, Camera, Loader2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { compressImage } from '../lib/compressImage'
+import { sendPushToAll } from '../lib/push'
+import { firstName } from '../lib/utils'
 import toast from 'react-hot-toast'
-
-const compressImage = (file) =>
-  new Promise((resolve) => {
-    const canvas = document.createElement('canvas')
-    const ctx = canvas.getContext('2d')
-    const img = new Image()
-    img.onload = () => {
-      const maxSize = 1400
-      const ratio = Math.min(maxSize / img.width, maxSize / img.height, 1)
-      canvas.width = Math.round(img.width * ratio)
-      canvas.height = Math.round(img.height * ratio)
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-      canvas.toBlob(
-        (blob) => resolve(new File([blob], file.name, { type: 'image/jpeg' })),
-        'image/jpeg',
-        0.82
-      )
-    }
-    img.src = URL.createObjectURL(file)
-  })
 
 export default function AddSiteModal({ position, commercial, onSave, onClose }) {
   const [form, setForm] = useState({
@@ -34,6 +17,40 @@ export default function AddSiteModal({ position, commercial, onSave, onClose }) 
   const [previews, setPreviews] = useState([])
   const [photoFiles, setPhotoFiles] = useState([])
   const [saving, setSaving] = useState(false)
+
+  const [allNames, setAllNames] = useState([])
+  const [allCompanies, setAllCompanies] = useState([])
+  const [nameSuggestions, setNameSuggestions] = useState([])
+  const [companySuggestions, setCompanySuggestions] = useState([])
+
+  const nameRef = useRef(null)
+  const companyRef = useRef(null)
+
+  useEffect(() => {
+    supabase
+      .from('sites')
+      .select('name, company')
+      .then(({ data }) => {
+        if (!data) return
+        const names = [...new Set(data.map(r => r.name).filter(Boolean))].sort()
+        const companies = [...new Set(data.map(r => r.company).filter(Boolean))].sort()
+        setAllNames(names)
+        setAllCompanies(companies)
+      })
+  }, [])
+
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (nameRef.current && !nameRef.current.contains(e.target)) {
+        setNameSuggestions([])
+      }
+      if (companyRef.current && !companyRef.current.contains(e.target)) {
+        setCompanySuggestions([])
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
 
   const set = (key) => (e) => setForm(prev => ({ ...prev, [key]: e.target.value }))
 
@@ -88,6 +105,12 @@ export default function AddSiteModal({ position, commercial, onSave, onClose }) 
       }
 
       toast.success('Site ajouté avec succès !')
+      sendPushToAll(
+        `${firstName(commercial.name)} a ajouté un site`,
+        `${form.name.trim()}${form.company.trim() ? ` — ${form.company.trim()}` : ''}`,
+        `/?site=${site.id}`,
+        commercial.id
+      )
       onSave(site)
     } catch (err) {
       console.error(err)
@@ -98,7 +121,7 @@ export default function AddSiteModal({ position, commercial, onSave, onClose }) 
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+    <div className="fixed inset-0 flex items-end sm:items-center justify-center" style={{ zIndex: 2000 }}>
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
       <div className="relative bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl max-h-[92vh] flex flex-col shadow-2xl">
@@ -114,10 +137,15 @@ export default function AddSiteModal({ position, commercial, onSave, onClose }) 
         </div>
 
         <form onSubmit={handleSubmit} className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
-          {position && (
+          {position ? (
             <div className="text-[11px] text-gray-400 bg-gray-50 rounded-xl px-3 py-2 font-mono flex items-center gap-2">
               <div className="w-2 h-2 rounded-full" style={{ background: commercial.color }} />
               {commercial.name} — 📍 {position.lat.toFixed(5)}, {position.lng.toFixed(5)}
+            </div>
+          ) : (
+            <div className="text-[11px] text-gray-400 bg-gray-50 rounded-xl px-3 py-2 flex items-center gap-2">
+              <Loader2 size={12} className="animate-spin text-blue-400" />
+              Localisation GPS en cours…
             </div>
           )}
 
@@ -125,25 +153,89 @@ export default function AddSiteModal({ position, commercial, onSave, onClose }) 
             <label className="block text-sm font-semibold text-gray-700 mb-1.5">
               Nom du site <span className="text-red-500">*</span>
             </label>
-            <input
-              type="text"
-              value={form.name}
-              onChange={set('name')}
-              placeholder="Ex : Chantier Tour Lumière"
-              required
-              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
-            />
+            <div className="relative" ref={nameRef}>
+              <input
+                type="text"
+                value={form.name}
+                onChange={(e) => {
+                  const val = e.target.value
+                  setForm(prev => ({ ...prev, name: val }))
+                  if (val.length >= 2) {
+                    const q = val.toLowerCase()
+                    setNameSuggestions(
+                      allNames.filter(n => n.toLowerCase().includes(q)).slice(0, 6)
+                    )
+                  } else {
+                    setNameSuggestions([])
+                  }
+                }}
+                onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setNameSuggestions([]) } }}
+                placeholder="Ex : Chantier Tour Lumière"
+                required
+                className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+              />
+              {nameSuggestions.length > 0 && (
+                <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+                  {nameSuggestions.map((s, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        setForm(prev => ({ ...prev, name: s }))
+                        setNameSuggestions([])
+                      }}
+                      className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1.5">Entreprise</label>
-            <input
-              type="text"
-              value={form.company}
-              onChange={set('company')}
-              placeholder="Ex : Bouygues Construction"
-              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
-            />
+            <div className="relative" ref={companyRef}>
+              <input
+                type="text"
+                value={form.company}
+                onChange={(e) => {
+                  const val = e.target.value
+                  setForm(prev => ({ ...prev, company: val }))
+                  if (val.length >= 2) {
+                    const q = val.toLowerCase()
+                    setCompanySuggestions(
+                      allCompanies.filter(c => c.toLowerCase().includes(q)).slice(0, 6)
+                    )
+                  } else {
+                    setCompanySuggestions([])
+                  }
+                }}
+                onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setCompanySuggestions([]) } }}
+                placeholder="Ex : Bouygues Construction"
+                className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+              />
+              {companySuggestions.length > 0 && (
+                <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+                  {companySuggestions.map((s, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        setForm(prev => ({ ...prev, company: s }))
+                        setCompanySuggestions([])
+                      }}
+                      className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           <div>

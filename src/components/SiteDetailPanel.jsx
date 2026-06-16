@@ -1,7 +1,16 @@
 import { useState, useEffect } from 'react'
-import { X, Edit2, Trash2, Camera, Loader2, Phone, Mail, MapPin } from 'lucide-react'
+import { X, Edit2, Trash2, Camera, Loader2, Phone, Mail, MapPin, Copy, LocateFixed } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { compressImage } from '../lib/compressImage'
+import { sendPushToAll } from '../lib/push'
+import { firstName } from '../lib/utils'
+import { geocodeSingle } from '../lib/geocode'
 import toast from 'react-hot-toast'
+
+// Zone de travail GNC — même constante que geocode.js
+const WORK = { latMin: 44.0, latMax: 48.5, lngMin: 3.0, lngMax: 9.5 }
+const inWorkArea = (lat, lng) =>
+  lat >= WORK.latMin && lat <= WORK.latMax && lng >= WORK.lngMin && lng <= WORK.lngMax
 
 const STATUS = {
   prospect: { label: 'Prospect', cls: 'bg-amber-100 text-amber-800' },
@@ -10,31 +19,13 @@ const STATUS = {
   termine:  { label: 'Terminé',  cls: 'bg-gray-100 text-gray-600' },
 }
 
-const compressImage = (file) =>
-  new Promise((resolve) => {
-    const canvas = document.createElement('canvas')
-    const ctx = canvas.getContext('2d')
-    const img = new Image()
-    img.onload = () => {
-      const ratio = Math.min(1400 / img.width, 1400 / img.height, 1)
-      canvas.width = Math.round(img.width * ratio)
-      canvas.height = Math.round(img.height * ratio)
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-      canvas.toBlob(
-        (blob) => resolve(new File([blob], file.name, { type: 'image/jpeg' })),
-        'image/jpeg', 0.82
-      )
-    }
-    img.src = URL.createObjectURL(file)
-  })
-
 const fmt = (iso) =>
   new Date(iso).toLocaleString('fr-FR', {
     day: '2-digit', month: '2-digit', year: '2-digit',
     hour: '2-digit', minute: '2-digit',
   })
 
-export default function SiteDetailPanel({ site, commercial, currentCommercialId, color, onClose, onUpdated }) {
+export default function SiteDetailPanel({ site, commercial, currentCommercial, currentCommercialId, color, onClose, onUpdated }) {
   const [photos, setPhotos] = useState([])
   const [reports, setReports] = useState([])
   const [newReport, setNewReport] = useState('')
@@ -48,7 +39,32 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
     email: site.email || '',
   })
   const [saving, setSaving] = useState(false)
+  const [uploading, setUploading] = useState(false)
   const [lightbox, setLightbox] = useState(null)
+  const [regeocing, setRegeocing] = useState(false)
+
+  const needsGeoFix = !site.lat || (site.lat && !inWorkArea(site.lat, site.lng))
+
+  const handleRegeocode = async () => {
+    if (!site.address && !site.city) {
+      toast.error('Aucune adresse disponible pour localiser ce site')
+      return
+    }
+    setRegeocing(true)
+    const geo = await geocodeSingle(site.address || '', site.postcode || '', site.city || '')
+    setRegeocing(false)
+    if (!geo) {
+      toast.error('Adresse non trouvée dans la zone Lyon / Grenoble / Jura / Suisse')
+      return
+    }
+    const { error } = await supabase
+      .from('sites')
+      .update({ lat: geo.lat, lng: geo.lng, updated_at: new Date().toISOString() })
+      .eq('id', site.id)
+    if (error) { toast.error('Erreur lors de la mise à jour'); return }
+    toast.success('Position corrigée ✓')
+    onUpdated({ ...site, lat: geo.lat, lng: geo.lng })
+  }
 
   const isOwner = currentCommercialId === site.commercial_id
   const statusInfo = STATUS[site.status] ?? STATUS.prospect
@@ -56,6 +72,25 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
   useEffect(() => {
     loadPhotos()
     loadReports()
+  }, [site.id])
+
+  // Temps réel : pas de filtre serveur (nécessite RLS) → filtre côté client.
+  useEffect(() => {
+    const ch = supabase.channel(`site-detail-${site.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'photos' }, ({ new: photo }) => {
+        if (photo.site_id === site.id) loadPhotos()
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'photos' }, ({ old }) => {
+        if (old.site_id === site.id) setPhotos(prev => prev.filter(p => p.id !== old.id))
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reports' }, ({ new: report }) => {
+        if (report.site_id === site.id) loadReports()
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'reports' }, ({ old }) => {
+        if (old.site_id === site.id) setReports(prev => prev.filter(r => r.id !== old.id))
+      })
+      .subscribe()
+    return () => supabase.removeChannel(ch)
   }, [site.id])
 
   const loadPhotos = async () => {
@@ -70,21 +105,28 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
 
   const handleAddPhoto = async (e) => {
     const files = Array.from(e.target.files)
-    for (const file of files) {
-      try {
-        const compressed = await compressImage(file)
-        const path = `${currentCommercialId}/${site.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`
-        const { error } = await supabase.storage.from('site-photos').upload(path, compressed)
-        if (!error) {
-          const { data: { publicUrl } } = supabase.storage.from('site-photos').getPublicUrl(path)
-          const { data: photo } = await supabase.from('photos')
-            .insert({ site_id: site.id, commercial_id: currentCommercialId, url: publicUrl })
-            .select().single()
-          if (photo) setPhotos(prev => [photo, ...prev])
-        }
-      } catch { /* ignore */ }
+    if (!files.length) return
+    setUploading(true)
+    try {
+      for (const file of files) {
+        try {
+          const compressed = await compressImage(file)
+          const path = `${currentCommercialId}/${site.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`
+          const { error } = await supabase.storage.from('site-photos').upload(path, compressed)
+          if (!error) {
+            const { data: { publicUrl } } = supabase.storage.from('site-photos').getPublicUrl(path)
+            const { data: photo } = await supabase.from('photos')
+              .insert({ site_id: site.id, commercial_id: currentCommercialId, url: publicUrl })
+              .select().single()
+            if (photo) setPhotos(prev => [photo, ...prev])
+          }
+        } catch { /* ignore */ }
+      }
+      toast.success('Photo ajoutée')
+      sendPushToAll(`${firstName(currentCommercial?.name ?? '')} — photo sur ${site.name}`, 'Nouvelle photo ajoutée', `/?site=${site.id}`, currentCommercialId)
+    } finally {
+      setUploading(false)
     }
-    toast.success('Photo ajoutée')
   }
 
   const handleDeletePhoto = async (photo) => {
@@ -95,10 +137,28 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
 
   const handleAddReport = async () => {
     if (!newReport.trim()) return
-    const { data } = await supabase.from('reports')
-      .insert({ site_id: site.id, commercial_id: currentCommercialId, content: newReport.trim() })
-      .select('*, commercials(id, name)').single()
-    if (data) { setReports(prev => [data, ...prev]); setNewReport(''); toast.success('Rapport ajouté') }
+    const content = newReport.trim()
+    setNewReport('')  // Vider immédiatement pour l'UX
+
+    const { error } = await supabase.from('reports')
+      .insert({ site_id: site.id, commercial_id: currentCommercialId, content })
+
+    if (error) {
+      setNewReport(content)  // Restaurer si erreur
+      toast.error("Erreur lors de l'ajout du rapport")
+      return
+    }
+
+    // Recharger pour avoir la jointure correcte (auteur, etc.)
+    // Le realtime déclenchera aussi loadReports() pour les autres utilisateurs
+    await loadReports()
+    toast.success('Rapport ajouté')
+    sendPushToAll(
+      `${firstName(currentCommercial?.name ?? '')} — rapport sur ${site.name}`,
+      content.slice(0, 80),
+      `/?site=${site.id}`,
+      currentCommercialId
+    )
   }
 
   const handleDeleteReport = async (id) => {
@@ -123,6 +183,7 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
     if (error) return toast.error('Erreur lors de la mise à jour')
     toast.success('Site mis à jour')
     setEditMode(false)
+    sendPushToAll(`${firstName(currentCommercial?.name ?? '')} a modifié ${editForm.name.trim()}`, `Statut : ${STATUS[editForm.status]?.label ?? editForm.status}`, `/?site=${site.id}`, currentCommercialId)
     onUpdated()
   }
 
@@ -130,12 +191,21 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
     if (!window.confirm(`Supprimer "${site.name}" ?\n\nSi ce site a un Code client, il ne sera pas réimporté lors des prochaines importations Excel.`)) return
     await supabase.from('sites').update({ deleted: true, updated_at: new Date().toISOString() }).eq('id', site.id)
     toast.success('Site supprimé')
-    onUpdated()
+    onUpdated(true)
+  }
+
+  const copyAddress = () => {
+    const addr = [site.address, site.postcode, site.city].filter(Boolean).join(', ')
+      || (site.lat ? `${site.lat.toFixed(5)}, ${site.lng.toFixed(5)}` : '')
+    if (!addr) return
+    navigator.clipboard.writeText(addr)
+      .then(() => toast.success('Adresse copiée !'))
+      .catch(() => toast.error('Impossible de copier'))
   }
 
   return (
     <>
-      <div className="absolute inset-y-0 right-0 w-full sm:w-96 bg-white shadow-2xl z-20 flex flex-col">
+      <div className="absolute inset-0 bg-white shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex-shrink-0 border-b px-4 py-3">
           <div className="flex items-start justify-between gap-2">
@@ -160,7 +230,7 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
               )}
             </div>
             <div className="flex items-center gap-1 flex-shrink-0">
-              {isOwner && !editMode && (
+              {!editMode && (
                 <>
                   <button onClick={() => setEditMode(true)} className="p-2 hover:bg-gray-100 rounded-xl">
                     <Edit2 size={15} className="text-gray-500" />
@@ -179,7 +249,7 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
 
         <div className="flex-1 overflow-y-auto">
           {/* Edit form */}
-          {editMode && isOwner && (
+          {editMode && (
             <div className="p-4 border-b bg-blue-50/50 space-y-3">
               {[
                 { key: 'name', label: 'Nom', placeholder: 'Nom du site' },
@@ -235,15 +305,69 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
             </div>
           )}
 
-          {/* Contact info */}
-          {!editMode && (site.phone || site.email || site.address) && (
-            <div className="px-4 py-3 border-b space-y-1.5">
-              {site.address && (
-                <div className="flex items-center gap-2 text-sm text-gray-600">
-                  <MapPin size={14} className="text-gray-400 flex-shrink-0" />
-                  <span>{[site.address, site.postcode, site.city].filter(Boolean).join(', ')}</span>
+          {/* Contact info + navigation */}
+          {!editMode && (site.phone || site.email || site.address || site.city || site.lat) && (
+            <div className="px-4 py-3 border-b space-y-2">
+
+              {/* Adresse avec bouton copier */}
+              {(site.address || site.city || site.lat) && (
+                <div className="flex items-start gap-2">
+                  <MapPin size={14} className="text-gray-400 flex-shrink-0 mt-0.5" />
+                  <span className="text-sm text-gray-600 flex-1 leading-snug">
+                    {[site.address, site.postcode, site.city].filter(Boolean).join(', ')
+                      || `${site.lat?.toFixed(5)}, ${site.lng?.toFixed(5)}`}
+                  </span>
+                  <button
+                    onClick={copyAddress}
+                    className="flex-shrink-0 p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+                    title="Copier l'adresse"
+                  >
+                    <Copy size={13} className="text-gray-400" />
+                  </button>
                 </div>
               )}
+
+              {/* Boutons navigation GPS */}
+              {site.lat && !needsGeoFix && (
+                <div className="flex gap-2 pt-1">
+                  <a
+                    href={`https://waze.com/ul?ll=${site.lat},${site.lng}&navigate=yes`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-[#05C8F7] hover:bg-[#00b4de] active:scale-95 text-white rounded-xl text-xs font-bold transition-all"
+                  >
+                    🚗 Waze
+                  </a>
+                  <a
+                    href={`https://www.google.com/maps/dir/?api=1&destination=${site.lat},${site.lng}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-[#4285F4] hover:bg-[#3574e2] active:scale-95 text-white rounded-xl text-xs font-bold transition-all"
+                  >
+                    🗺️ Google Maps
+                  </a>
+                </div>
+              )}
+
+              {/* Alerte + bouton recorrection si hors zone ou pas de coordonnées */}
+              {needsGeoFix && (site.address || site.city) && (
+                <div className="mt-1 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 flex items-center gap-2">
+                  <span className="text-amber-600 text-xs flex-1">
+                    {!site.lat ? 'Position inconnue' : '⚠️ Position hors zone (erreur de géocodage)'}
+                  </span>
+                  <button
+                    onClick={handleRegeocode}
+                    disabled={regeocing}
+                    className="flex items-center gap-1.5 text-xs font-bold text-amber-700 hover:text-amber-900 disabled:opacity-50"
+                  >
+                    {regeocing
+                      ? <Loader2 size={13} className="animate-spin" />
+                      : <LocateFixed size={13} />}
+                    {regeocing ? 'Recherche…' : 'Recalculer'}
+                  </button>
+                </div>
+              )}
+
               {site.phone && (
                 <a href={`tel:${site.phone}`} className="flex items-center gap-2 text-sm text-blue-600 hover:underline">
                   <Phone size={14} className="flex-shrink-0" />
@@ -267,25 +391,16 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
             </div>
           )}
 
-          {/* Coordinates */}
-          {site.lat && (
-            <div className="px-4 py-2 border-b bg-gray-50">
-              <p className="text-[11px] text-gray-400 font-mono">
-                📍 {site.lat.toFixed(5)}, {site.lng.toFixed(5)}
-              </p>
-            </div>
-          )}
-
           {/* Photos */}
           <div className="p-4 border-b">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold text-sm text-gray-800">
                 Photos <span className="text-gray-400 font-normal">({photos.length})</span>
               </h3>
-              <label className="flex items-center gap-1.5 text-xs text-blue-600 font-semibold cursor-pointer hover:text-blue-800">
-                <Camera size={14} />
-                Ajouter
-                <input type="file" accept="image/*" capture="environment" multiple onChange={handleAddPhoto} className="hidden" />
+              <label className={`flex items-center gap-1.5 text-xs font-semibold cursor-pointer ${uploading ? 'text-gray-400 pointer-events-none' : 'text-blue-600 hover:text-blue-800'}`}>
+                {uploading ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />}
+                {uploading ? 'Envoi...' : 'Ajouter'}
+                <input type="file" accept="image/*" capture="environment" multiple onChange={handleAddPhoto} className="hidden" disabled={uploading} />
               </label>
             </div>
             {photos.length === 0 ? (
@@ -298,18 +413,16 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
                 {photos.map(photo => (
                   <div
                     key={photo.id}
-                    className="relative aspect-square rounded-xl overflow-hidden group cursor-pointer"
+                    className="relative aspect-square rounded-xl overflow-hidden cursor-pointer"
                     onClick={() => setLightbox(photo.url)}
                   >
                     <img src={photo.url} alt="" className="w-full h-full object-cover" loading="lazy" />
-                    {isOwner && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDeletePhoto(photo) }}
-                        className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full items-center justify-center text-sm font-bold hidden group-hover:flex shadow"
-                      >
-                        ×
-                      </button>
-                    )}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDeletePhoto(photo) }}
+                      className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center text-sm font-bold shadow"
+                    >
+                      ×
+                    </button>
                   </div>
                 ))}
               </div>
@@ -344,9 +457,7 @@ export default function SiteDetailPanel({ site, commercial, currentCommercialId,
                     <span className="text-xs font-semibold text-gray-700">{report.commercials?.name}</span>
                     <div className="flex items-center gap-2">
                       <span className="text-[11px] text-gray-400">{fmt(report.created_at)}</span>
-                      {report.commercial_id === currentCommercialId && (
-                        <button onClick={() => handleDeleteReport(report.id)} className="text-red-400 hover:text-red-600 font-bold text-sm">×</button>
-                      )}
+                      <button onClick={() => handleDeleteReport(report.id)} className="text-red-400 hover:text-red-600 font-bold text-sm">×</button>
                     </div>
                   </div>
                   <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">{report.content}</p>
